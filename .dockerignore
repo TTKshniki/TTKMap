@@ -1,0 +1,14 @@
+.git
+.vibeteam
+.codex
+.agents
+.aws
+.venv
+venv
+node_modules
+frontend/node_modules
+frontend/dist
+data
+.env
+__pycache__
+.pytest_cache

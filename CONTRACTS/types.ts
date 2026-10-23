@@ -1,14 +1,37 @@
-export interface Item {
-  id: string;
-  title: string;
-  created_at: string;
-}
-
-export interface CreateItemRequest {
-  title: string;
-}
-
-export interface ApiResponse<T> {
-  data: T;
-  error?: string;
-}
+/** Shared TTKMap contract types. Generated/validated against CONTRACTS/openapi.yaml. */
+export type UUID = string;
+export type Slug = string;
+export type Timestamp = string;
+export type Point = { x: number; y: number };
+export type ErrorCode = 'BAD_REQUEST' | 'AUTH_REQUIRED' | 'INVALID_CREDENTIALS' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'VERSION_CONFLICT' | 'VALIDATION_ERROR' | 'PUBLISH_BLOCKED' | 'ROUTE_NOT_FOUND' | 'MEDIA_TOO_LARGE' | 'UNSUPPORTED_MEDIA_TYPE' | 'RATE_LIMITED' | 'INTERNAL_ERROR' | 'SERVICE_UNAVAILABLE';
+export type ValidationIssue = { path: string; message: string };
+export type ApiError = { error: { code: ErrorCode; message: string; issues: ValidationIssue[]; current_revision: number | null } };
+export type User = { id: UUID; email: string; role: 'organizer' };
+export type LoginRequest = { email: string; password: string };
+export type Session = { user: User; csrf_token: string; expires_at: Timestamp };
+export type Health = { status: 'ok' };
+export type CreateMapRequest = { title: string; description: string; width_units: number; height_units: number; scale_m_per_unit: number | null; max_walk_gap_units: number };
+export type Shape = { id: UUID; kind: 'wall' | 'room' | 'corridor'; label: string; points: Point[] };
+export type NavNode = { id: UUID; x: number; y: number };
+export type NavEdge = { id: UUID; a: UUID; b: UUID };
+export type Poi = { id: UUID; title: string; category: 'booth' | 'hall' | 'entrance' | 'service_desk' | 'wifi' | 'custom'; category_label: string | null; description: string; x: number; y: number; nav_node_id: UUID | null };
+export type Panorama = { id: UUID; asset_id: UUID; title: string; x: number; y: number; nav_node_id: UUID | null; heading_offset_deg: number };
+export type Hotspot = { id: UUID; panorama_id: UUID; kind: 'poi' | 'transition'; yaw_deg: number; pitch_deg: number; poi_id: UUID | null; target_panorama_id: UUID | null };
+export type MapDocument = { title: string; description: string; is_published: boolean; scale_m_per_unit: number | null; max_walk_gap_units: number; background_asset_id: UUID | null; shapes: Shape[]; nodes: NavNode[]; edges: NavEdge[]; pois: Poi[]; panoramas: Panorama[]; hotspots: Hotspot[] };
+export type AssetRef = { id: UUID; kind: 'plan' | 'panorama'; source: 'upload' | 'stitch'; width_px: number; height_px: number; projection: 'equirectangular' | null; haov_deg: 360 | null; vaov_deg: number | null; v_offset_deg: number | null; preview_url: string; mobile_url: string; full_url: string; created_at: Timestamp };
+export type AssetUpload = { kind: 'plan' | 'panorama'; file: File };
+export type MapSnapshot = { id: UUID; slug: Slug; revision: number; width_units: number; height_units: number; updated_at: Timestamp; document: MapDocument; assets: AssetRef[] };
+export type OrganizerMap = { snapshot: MapSnapshot; owner_id: UUID; created_at: Timestamp };
+export type PublicMap = MapSnapshot;
+export type MapSummary = { id: UUID; slug: Slug; title: string; is_published: boolean; revision: number; updated_at: Timestamp };
+export type CreateCaptureRequest = { title: string; x: number; y: number; hfov_hint_deg: number };
+export type CaptureFrame = { index: number; sha256: string; width_px: number; height_px: number };
+export type FrameUpload = { file: File };
+export type CaptureState = 'collecting' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type JobError = 'INPUT_EXPIRED' | 'NOT_ENOUGH_OVERLAP' | 'LOOP_NOT_CLOSED' | 'INSUFFICIENT_COVERAGE' | 'QUALITY_REJECTED' | 'TIMEOUT' | 'WORKER_LOST' | 'TOOL_FAILED';
+export type Capture = { id: UUID; map_id: UUID; title: string; x: number; y: number; hfov_hint_deg: number; state: CaptureState; progress: number; attempt: number; frames: CaptureFrame[]; result_asset_id: UUID | null; error_code: JobError | null; error_message: string | null; created_at: Timestamp; updated_at: Timestamp; started_at: Timestamp | null; finished_at: Timestamp | null };
+export type RouteRequest = { revision: number; from_node_id: UUID; to_node_id: UUID };
+export type PanoramaWalkStep = { node_id: UUID; panorama_id: UUID; yaw_deg: number; next_hotspot_id: UUID | null };
+export type PanoramaWalkGap = { from_node_id: UUID; to_node_id: UUID; reason: 'same_node' | 'missing_panorama' | 'missing_transition' | 'gap_too_large' };
+export type PanoramaWalk = { available: boolean; steps: PanoramaWalkStep[]; gaps: PanoramaWalkGap[] };
+export type RouteResponse = { revision: number; node_ids: UUID[]; polyline: Point[]; distance_units: number; distance_m: number | null; walk: PanoramaWalk };

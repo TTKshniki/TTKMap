@@ -10,6 +10,8 @@ node_modules/
 .DS_Store
 dist/
 build/
+data/
+frontend/.vite/
 
 # VibeTeamOS & Hackathon Runtime Artifacts
 .vibeteam_env/
