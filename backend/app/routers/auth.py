@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Cookie, Depends, Header, Response
+from fastapi import APIRouter, Cookie, Depends, Header, Request, Response
 
 from backend.app.auth import (
+    check_login_rate_limit,
     create_session,
+    record_login_failure,
     require_csrf,
     require_origin,
     require_session,
@@ -28,13 +30,17 @@ def _session_response(row, csrf_token: str, expires_at: str) -> Session:
 
 
 @router.post("/login", response_model=Session)
-def login(payload: LoginRequest, response: Response, _: None = Depends(require_origin)):
+def login(payload: LoginRequest, request: Request, response: Response, _: None = Depends(require_origin)):
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    normalized_email = payload.email.strip().lower()
+    check_login_rate_limit(client_ip, normalized_email)
     with database() as connection:
         row = connection.execute(
             "SELECT id,email,role,password_hash FROM users WHERE email=?",
-            (payload.email.lower(),),
+            (normalized_email,),
         ).fetchone()
     if row is None or not verify_password(row["password_hash"], payload.password):
+        record_login_failure(client_ip, normalized_email)
         raise ApiError(401, "INVALID_CREDENTIALS", "Email or password is invalid")
     token, csrf_token, expires_at = create_session(row["id"])
     response.set_cookie("ttk_session", token, httponly=True, secure=settings.cookie_secure,
@@ -57,4 +63,4 @@ def logout(
 ):
     require_csrf(row, csrf_token)
     revoke_session(ttk_session)
-    response.delete_cookie("ttk_session", httponly=True, secure=settings.cookie_secure, samesite="lax")
+    response.delete_cookie("ttk_session", httponly=True, secure=settings.cookie_secure, samesite="lax", path="/")

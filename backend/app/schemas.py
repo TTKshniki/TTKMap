@@ -143,3 +143,28 @@ class CreateMapRequest(StrictModel):
     height_units: int = Field(ge=1, le=100000)
     scale_m_per_unit: float | None
     max_walk_gap_units: float = Field(gt=0, le=1000000, allow_inf_nan=False)
+
+    @field_validator("scale_m_per_unit")
+    @classmethod
+    def valid_scale(cls, value: float | None) -> float | None:
+        if value is not None and (not 0 < value <= 1000):
+            raise ValueError("scale_m_per_unit must be positive and at most 1000")
+        return value
+
+
+class LoginRequest(StrictModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=128)
+
+
+class RouteRequest(StrictModel):
+    revision: int = Field(ge=1)
+    from_node_id: UUID
+    to_node_id: UUID
+
+
+class CreateCaptureRequest(StrictModel):
+    title: str = Field(min_length=1, max_length=160)
+    x: Coordinate
+    y: Coordinate
+    hfov_hint_deg: float = Field(ge=40, le=85, allow_inf_nan=False)
