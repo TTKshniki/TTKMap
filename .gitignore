@@ -10,3 +10,12 @@ node_modules/
 .DS_Store
 dist/
 build/
+
+# VibeTeamOS & Hackathon Runtime Artifacts
+.vibeteam_env/
+*.egg-info/
+*.pyc
+state_backup.json
+vibeteam_hub.db*
+.env.local
+.pytest_cache/
