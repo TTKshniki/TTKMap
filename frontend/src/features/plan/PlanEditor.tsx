@@ -18,7 +18,7 @@ export interface PlanEditorProps {
   captureSlot?: React.ReactNode;
 }
 
-type EditorTool = 'select' | 'add_poi' | 'add_wall' | 'add_room' | 'add_node';
+type EditorTool = 'wall' | 'poi' | 'door' | 'ruler' | 'window' | 'zone';
 
 function makeUuid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -30,6 +30,15 @@ function makeUuid(): string {
     return v.toString(16);
   });
 }
+
+const MARKUP_TOOLS: Array<{ id: EditorTool; label: string; icon: string }> = [
+  { id: 'wall', label: 'Стены', icon: 'square' },
+  { id: 'poi', label: 'Точки POI', icon: 'map-pin' },
+  { id: 'door', label: 'Проходы', icon: 'door-open' },
+  { id: 'ruler', label: 'Линейка', icon: 'ruler' },
+  { id: 'window', label: 'Окна', icon: 'app-window' },
+  { id: 'zone', label: 'Зоны', icon: 'box' },
+];
 
 export const PlanEditor: React.FC<PlanEditorProps> = ({
   mapId,
@@ -44,12 +53,12 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
   captureSlot,
 }: PlanEditorProps) => {
   const [generatedCanvasMap, setGeneratedCanvasMap] = useState<string | null>(null);
-  const [tool, setTool] = useState<EditorTool>('add_poi');
+  const [tool, setTool] = useState<EditorTool>('poi');
   const [newPoiTitle, setNewPoiTitle] = useState('Новая точка ТТК');
   const [newPoiCategory, setNewPoiCategory] = useState<Poi['category']>('booth');
   const [newPoiCustomLabel, setNewPoiCustomLabel] = useState('Зона отдыха');
   const [newPoiDesc, setNewPoiDesc] = useState(
-    'Корпус A, Этаж 1 | Свободно | 20 человек | Интерактивный стенд, Wi-Fi | TTK_Guest_5G',
+    'Корпус A, Этаж 1 | Свободно | 20 человек | Интерактивный стенд, Wi-Fi | TTK_Corporate (5G)',
   );
   const [newShapeLabel, setNewShapeLabel] = useState('Новая зона');
   const [selectedPoiId, setSelectedPoiId] = useState<string | null>(mapDoc.pois[0]?.id ?? null);
@@ -73,13 +82,13 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
         canvas.height = 500;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.fillStyle = darkMode ? '#1e293b' : '#f8fafc';
+          ctx.fillStyle = darkMode ? '#0f172a' : '#f8fafc';
           ctx.fillRect(0, 0, 700, 500);
-          ctx.strokeStyle = '#ef4444';
+          ctx.strokeStyle = '#E31B23';
           ctx.lineWidth = 4;
           ctx.strokeRect(30, 30, 640, 440);
           ctx.drawImage(img, 50, 50, 600, 400);
-          ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
+          ctx.fillStyle = 'rgba(227, 27, 35, 0.12)';
           ctx.fillRect(50, 50, 600, 400);
           setGeneratedCanvasMap(canvas.toDataURL());
           onNotify('2D Чертеж успешно сгенерирован ИИ!');
@@ -103,6 +112,11 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
     event.target.value = '';
   };
 
+  const handleSelectMarkupTool = (nextTool: EditorTool) => {
+    setTool(nextTool);
+    onNotify(`Инструмент разметки: ${nextTool}`);
+  };
+
   const handleSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
@@ -110,7 +124,7 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
     const x = Math.round(pt.x);
     const y = Math.round(pt.y);
 
-    if (tool === 'add_poi') {
+    if (tool === 'poi') {
       const nodeId = makeUuid();
       const poiId = makeUuid();
       const newNode: NavNode = { id: nodeId, x, y };
@@ -152,7 +166,7 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
       onChangeDocument(nextDoc);
       setSelectedPoiId(poiId);
       onNotify(`Точка «${newPoi.title}» добавлена на координаты (${x}, ${y})`);
-    } else if (tool === 'add_room') {
+    } else if (tool === 'zone') {
       const halfW = 60;
       const halfH = 45;
       const x1 = Math.max(10, x - halfW);
@@ -171,21 +185,21 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
         ],
       };
       onChangeDocument({ ...mapDoc, shapes: [...mapDoc.shapes, newRoom] });
-      onNotify(`Помещение «${newRoom.label}» размечено на плане`);
-    } else if (tool === 'add_wall') {
+      onNotify(`Зона «${newRoom.label}» размечена на плане`);
+    } else if (tool === 'wall' || tool === 'window') {
       const x2 = Math.min(widthUnits - 10, x + 100);
       const newWall: Shape = {
         id: makeUuid(),
         kind: 'wall',
-        label: 'Стена',
+        label: tool === 'window' ? 'Окно' : 'Стена',
         points: [
           { x, y },
           { x: x2, y },
         ],
       };
       onChangeDocument({ ...mapDoc, shapes: [...mapDoc.shapes, newWall] });
-      onNotify('Сегмент стены добавлен на план');
-    } else if (tool === 'add_node') {
+      onNotify(tool === 'window' ? 'Оконный сегмент добавлен на план' : 'Сегмент стены добавлен на план');
+    } else if (tool === 'door') {
       const nodeId = makeUuid();
       const newNode: NavNode = { id: nodeId, x, y };
       const nextEdges: NavEdge[] = [...mapDoc.edges];
@@ -201,7 +215,10 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
         nodes: [...mapDoc.nodes, newNode],
         edges: nextEdges,
       });
-      onNotify(`Узел маршрутизации добавлен (${x}, ${y})`);
+      onNotify(`Проход / узел маршрутизации добавлен (${x}, ${y})`);
+    } else if (tool === 'ruler') {
+      const scaleM = mapDoc.scale_m_per_unit || 0.05;
+      onNotify(`Координата (${x}, ${y}) • ${(x * scaleM).toFixed(1)}м × ${(y * scaleM).toFixed(1)}м`);
     }
   };
 
@@ -221,114 +238,49 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
   const selectedPoi = mapDoc.pois.find((p) => p.id === selectedPoiId) ?? null;
 
   return (
-    <div className="space-y-6 animate-view-enter">
-      <div className={captureSlot ? 'grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch' : ''}>
-        {captureSlot}
-
-        {/* AI 2D Blueprint Generator Card (matches Front/index.html) */}
-        <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6 space-y-4 flex flex-col justify-between shadow-sm">
-          <div className="space-y-3">
-            <h3 className="font-bold text-base flex items-center gap-2">
-              <Icon name="sparkles" className="w-5 h-5 text-brand-600 shrink-0" />
-              <span>ИИ-генератор 2D плана и подложки</span>
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-              Загрузите чертеж или фото плана (PNG/JPEG/WebP), ИИ построит векторный план с разметкой и привяжет подложку
-            </p>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-view-enter">
+      {/* Left Column: 1. Инструменты разметки & 2. Мастер съемки */}
+      <div className="space-y-6">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 space-y-4 shadow-sm">
+          <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+            1. Инструменты разметки
+          </h3>
+          <div className="grid grid-cols-2 gap-3">
+            {MARKUP_TOOLS.map((item) => {
+              const active = tool === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleSelectMarkupTool(item.id)}
+                  className={`p-3 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition ${
+                    active
+                      ? 'bg-brand-600 text-white border-brand-600'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+                  }`}
+                >
+                  <Icon
+                    name={item.icon}
+                    className={`w-4 h-4 ${active ? 'text-white' : 'text-brand-600'}`}
+                  />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
           </div>
 
-          <input
-            ref={aiFileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            className="hidden"
-            onChange={generate2DBlueprint}
-          />
-
-          <div
-            onClick={() => aiFileInputRef.current?.click()}
-            className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-2xl p-6 text-center cursor-pointer hover:border-brand-600 transition bg-slate-50 dark:bg-slate-900/70"
-          >
-            <Icon name="sparkles" className="w-7 h-7 mx-auto text-brand-600 mb-2" />
-            <p className="text-xs font-semibold">Нажмите для выбора файла чертежа</p>
-            <p className="text-[11px] text-slate-400 mt-1">Поддерживаются PNG, JPEG, WebP</p>
-          </div>
-
-          {generatedCanvasMap && (
-            <div className="space-y-2 pt-2 animate-view-enter">
-              <h4 className="text-[10px] font-bold uppercase text-slate-400">Сгенерированный план:</h4>
-              <img
-                src={generatedCanvasMap}
-                alt="Сгенерированный 2D план"
-                className="rounded-xl border border-slate-300 dark:border-slate-700 max-h-48 mx-auto shadow-md"
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Interactive 2D SVG Map & POI Editor (Full width) */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6 space-y-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-base flex items-center gap-2">
-              <Icon name="map" className="w-5 h-5 text-brand-600" /> Интерактивный 2D-редактор плана и POI
-            </h3>
-            <p className="text-xs text-slate-500">
-              Кликните по схеме, чтобы разместить точку интереса (POI), комнату, стену или узел графа навигации
-            </p>
-          </div>
-          <button
-            onClick={() => onSaveDocument()}
-            className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-1.5 transition"
-          >
-            <Icon name="save" className="w-4 h-4" /> Сохранить изменения на сервер
-          </button>
-        </div>
-
-        {/* Tool Buttons */}
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              ['add_poi', 'Добавить POI'],
-              ['add_room', 'Добавить комнату'],
-              ['add_wall', 'Нарисовать стену'],
-              ['add_node', 'Узел маршрута'],
-              ['select', 'Выбор / Редактирование'],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setTool(key)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                tool === key
-                  ? 'bg-brand-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* New POI / Shape Configuration */}
-        {tool === 'add_poi' && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-slate-900 rounded-xl text-xs">
-            <div>
-              <label className="block font-semibold text-slate-500 mb-1">Название точки</label>
+          {tool === 'poi' && (
+            <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
               <input
                 type="text"
                 value={newPoiTitle}
                 onChange={(e) => setNewPoiTitle(e.target.value)}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5"
+                placeholder="Название новой POI"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2"
               />
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-500 mb-1">Категория</label>
               <select
                 value={newPoiCategory}
                 onChange={(e) => setNewPoiCategory(e.target.value as Poi['category'])}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2"
               >
                 <option value="entrance">Вход / Ресепшн (entrance)</option>
                 <option value="hall">Зал / Переговорная (hall)</option>
@@ -337,52 +289,103 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
                 <option value="wifi">Точка Wi-Fi (wifi)</option>
                 <option value="custom">Своя категория (custom)</option>
               </select>
-            </div>
-            <div>
-              <label className="block font-semibold text-slate-500 mb-1">
-                {newPoiCategory === 'custom' ? 'Название своей категории' : 'Описание и параметры'}
-              </label>
               {newPoiCategory === 'custom' ? (
                 <input
                   type="text"
                   value={newPoiCustomLabel}
                   onChange={(e) => setNewPoiCustomLabel(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5"
+                  placeholder="Название своей категории"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2"
                 />
               ) : (
                 <input
                   type="text"
                   value={newPoiDesc}
                   onChange={(e) => setNewPoiDesc(e.target.value)}
-                  className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5"
+                  placeholder="Описание точки"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2"
                 />
               )}
             </div>
-          </div>
-        )}
+          )}
 
-        {tool === 'add_room' && (
-          <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded-xl text-xs flex items-center gap-3">
-            <span className="font-semibold text-slate-500">Подпись комнаты:</span>
-            <input
-              type="text"
-              value={newShapeLabel}
-              onChange={(e) => setNewShapeLabel(e.target.value)}
-              className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5"
-            />
+          {tool === 'zone' && (
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+              <input
+                type="text"
+                value={newShapeLabel}
+                onChange={(e) => setNewShapeLabel(e.target.value)}
+                placeholder="Подпись зоны/комнаты"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2"
+              />
+            </div>
+          )}
+        </div>
+
+        {captureSlot}
+      </div>
+
+      {/* Right Column (lg:col-span-2): Интерактивный холст 2D разметки */}
+      <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-800 p-6 sm:p-8 flex flex-col items-center justify-between text-center space-y-5 min-h-[420px] shadow-sm">
+        <div className="w-full flex flex-wrap items-center justify-between gap-3 text-left">
+          <div className="flex items-center gap-3">
+            <Icon name="layers" className="w-8 h-8 text-brand-600 shrink-0" />
+            <div>
+              <h4 className="text-lg font-extrabold text-slate-900 dark:text-white">
+                Интерактивный холст 2D разметки
+              </h4>
+              <p className="text-xs text-slate-500">
+                Редактор плана: кликните по схеме, чтобы разместить выбранный элемент ({tool}), или загрузите подложку
+              </p>
+            </div>
           </div>
-        )}
+
+          <div className="flex items-center gap-2">
+            <input
+              ref={aiFileInputRef}
+              type="file"
+              accept="image/*,.svg,.dwg"
+              className="hidden"
+              onChange={generate2DBlueprint}
+            />
+            <button
+              onClick={() => aiFileInputRef.current?.click()}
+              className="bg-white dark:bg-slate-800 hover:bg-slate-50 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 font-bold px-4 py-2.5 rounded-2xl text-xs transition shadow-sm flex items-center gap-1.5"
+            >
+              <Icon name="sparkles" className="w-4 h-4 text-brand-600" />
+              <span>Загрузить файл планировки (SVG / DWG / PNG)</span>
+            </button>
+            <button
+              onClick={() => void onSaveDocument()}
+              className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2.5 rounded-2xl text-xs font-bold shadow-md flex items-center gap-1.5 transition"
+            >
+              <Icon name="save" className="w-4 h-4" />
+              <span>Сохранить</span>
+            </button>
+          </div>
+        </div>
 
         {/* Interactive SVG Canvas */}
-        <div className="overflow-auto bg-slate-50 dark:bg-slate-900 rounded-2xl p-3 sm:p-5 border border-slate-200 dark:border-slate-700 flex justify-center">
+        <div className="w-full overflow-auto bg-slate-50 dark:bg-slate-950 rounded-2xl p-3 sm:p-4 border border-slate-200 dark:border-slate-800 flex justify-center">
           <svg
             ref={svgRef}
             onClick={handleSvgClick}
             viewBox={`0 0 ${widthUnits} ${heightUnits}`}
             preserveAspectRatio="xMidYMid meet"
-            className="w-full max-w-[760px] map-stage-aspect bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 cursor-crosshair shadow-inner block"
+            className="w-full max-w-[720px] map-stage-aspect bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 cursor-crosshair shadow-inner block"
           >
-            {/* Base Blueprint Frame */}
+            {generatedCanvasMap && (
+              <image
+                href={generatedCanvasMap}
+                x="0"
+                y="0"
+                width={widthUnits}
+                height={heightUnits}
+                preserveAspectRatio="none"
+                opacity="0.45"
+              />
+            )}
+
             <rect
               x="40"
               y="40"
@@ -402,7 +405,12 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
               return (
                 <g key={shape.id}>
                   {shape.kind === 'wall' ? (
-                    <polyline points={pts} fill="none" stroke="#64748b" strokeWidth="4" />
+                    <polyline
+                      points={pts}
+                      fill="none"
+                      stroke={shape.label === 'Окно' ? '#f97316' : '#64748b'}
+                      strokeWidth="4"
+                    />
                   ) : (
                     <polygon
                       points={pts}
@@ -477,7 +485,7 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
 
         {/* Selected POI Inline Inspector */}
         {selectedPoi && (
-          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="w-full p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3 text-xs text-left">
             <div className="space-y-1 flex-1 min-w-[220px]">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-sm">{selectedPoi.title}</span>
@@ -498,12 +506,12 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
                     pois: mapDoc.pois.map((p) => (p.id === selectedPoi.id ? { ...p, description: val } : p)),
                   });
                 }}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5"
               />
             </div>
             <button
               onClick={() => handleDeletePoi(selectedPoi.id)}
-              className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl font-semibold flex items-center gap-1"
+              className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-semibold flex items-center gap-1"
             >
               <Icon name="trash-2" className="w-4 h-4" /> Удалить точку
             </button>

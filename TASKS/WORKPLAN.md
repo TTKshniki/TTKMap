@@ -123,7 +123,7 @@ GitHub Actions CI настроен в `.github/workflows/ci.yml`. Он запу�
 
 - [ ] `ttk-integration`
 - Участник A: `backend/app/main.py`, `backend/tests/integration/**`, `scripts/seed_demo.py`.
-- Участник B: `frontend/src/App.tsx`, `frontend/e2e/**`, `scripts/e2e.mjs`, `frontend/package.json`.
+- Участник B: `frontend/index.html`, `frontend/src/App.tsx`, `frontend/src/styles.css`, `frontend/src/shared/**`, `frontend/src/features/**`, `frontend/e2e/**`, `scripts/e2e.mjs`, `frontend/package.json`.
 - Участник C: `compose.yaml`, `README.md`, `docs/demo.md`.
 - Результат: backend и worker запускаются вместе, frontend подключён к реальным API, E2E проверяет путь организатора и посетителя, embed и live update.
 - Проверка: `npm --prefix frontend run test:e2e`, затем backend и frontend проверки из корня по отдельности.

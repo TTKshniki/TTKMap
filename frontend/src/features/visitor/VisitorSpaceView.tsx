@@ -1,13 +1,26 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { PublicMap, RouteResponse } from '../../../../CONTRACTS/types';
 import { Icon } from '../../shared/Icon';
-import { i18n, Lang, RichPoiItem, SpaceDefinition } from '../../shared/spacesData';
+import {
+  i18n,
+  Lang,
+  poiName,
+  poiStatus,
+  RichPoiItem,
+  spaceDesc,
+   SpaceDefinition,
+  spaceName,
+  spaceType,
+} from '../../shared/spacesData';
 
 export interface SpacesHeroViewProps {
   lang: Lang;
   spaceList: string[];
   spacesData: Record<string, SpaceDefinition>;
   currentSpaceKey: string;
+  carouselIndex?: number;
+  isFavorite?: (id: string) => boolean;
+  onToggleFavorite?: (id: string) => void;
   onPrevSpace: () => void;
   onNextSpace: () => void;
   onSelectSpace: (key: string) => void;
@@ -21,6 +34,9 @@ export const SpacesHeroView: React.FC<SpacesHeroViewProps> = ({
   spaceList,
   spacesData,
   currentSpaceKey,
+  carouselIndex = 0,
+  isFavorite,
+  onToggleFavorite,
   onPrevSpace,
   onNextSpace,
   onSelectSpace,
@@ -31,111 +47,165 @@ export const SpacesHeroView: React.FC<SpacesHeroViewProps> = ({
   const t = i18n[lang];
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8 custom-scrollbar animate-view-enter">
-      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 pb-8">
-        {/* Hero Section */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white rounded-2xl sm:rounded-3xl p-6 sm:p-10 lg:p-12 shadow-xl relative overflow-hidden">
-          <div className="absolute -right-16 -top-16 w-72 h-72 rounded-full bg-brand-600/20 blur-3xl pointer-events-none" />
-          <div className="max-w-2xl relative z-10 space-y-3 sm:space-y-4">
-            <span className="inline-block bg-brand-600 text-white text-[11px] sm:text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
-              Интерактивный навигатор ТТК
-            </span>
-            <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight leading-tight">
-              {t.heroTitle}
-            </h1>
-            <p className="text-slate-300 text-sm sm:text-base lg:text-lg leading-relaxed">{t.heroDesc}</p>
-            <div className="pt-2 sm:pt-4 flex flex-wrap gap-3 sm:gap-4">
+    <div className="p-4 sm:p-8 lg:p-10 custom-scrollbar animate-view-enter">
+      <div className="max-w-7xl mx-auto space-y-12">
+        {/* Hero Banner with Soft Dark Glow & Gradient */}
+        <div className="bg-slate-950 dark:bg-gradient-to-br dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 text-white rounded-3xl shadow-2xl border border-slate-800 grid grid-cols-1 lg:grid-cols-2 overflow-hidden min-h-[380px] relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-brand-600/15 via-slate-900/40 to-transparent pointer-events-none dark:block hidden" />
+
+          <div className="p-8 sm:p-10 lg:p-14 flex flex-col justify-between space-y-6 z-10 bg-slate-950/80 dark:bg-transparent border-r-0 lg:border-r border-slate-800/80">
+            <div className="space-y-4">
+              <span className="bg-brand-600 text-white text-xs font-bold px-3.5 py-1.5 rounded-full uppercase tracking-wider inline-block shadow-md">
+                {lang === 'ru' ? 'ИНТЕРАКТИВНЫЙ НАВИГАТОР ТТК' : 'TTK INTERACTIVE NAVIGATOR'}
+              </span>
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight">
+                {t.heroTitle}
+              </h1>
+              <p className="text-slate-300 text-sm sm:text-base leading-relaxed">{t.heroDesc}</p>
+            </div>
+            <div className="pt-2 flex flex-wrap gap-4">
               <button
                 onClick={onOpenMap}
-                className="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl shadow-lg transition flex items-center gap-2 text-sm sm:text-base"
+                className="bg-brand-600 hover:bg-brand-700 text-white font-bold px-6 py-3 rounded-2xl shadow-xl transition-all hover:scale-105 text-sm flex items-center gap-2.5"
               >
-                <Icon name="map" className="w-5 h-5 shrink-0" /> <span>{t.openMapBtn}</span>
+                <Icon name="map" className="w-4 h-4 shrink-0" />
+                <span>{t.openMapBtn}</span>
               </button>
               <button
                 onClick={onOpenPhotoSearch}
-                className="bg-white/10 hover:bg-white/20 text-white border border-white/20 font-semibold px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl backdrop-blur-md transition flex items-center gap-2 text-sm sm:text-base"
+                className="bg-slate-900 hover:bg-slate-800 text-slate-100 border border-slate-700 font-bold px-6 py-3 rounded-2xl backdrop-blur-md transition-all hover:scale-105 text-sm flex items-center gap-2.5 shadow-lg"
               >
-                <Icon name="camera" className="w-5 h-5 text-brand-500 shrink-0" /> <span>{t.searchPhotoBtn}</span>
+                <Icon name="camera" className="w-4 h-4 text-slate-300 shrink-0" />
+                <span>{t.searchPhotoBtn}</span>
               </button>
             </div>
+          </div>
+
+          <div
+            className="relative bg-cover bg-center min-h-[260px] lg:min-h-full"
+            style={{
+              backgroundImage:
+                "url('https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80')",
+            }}
+          >
+            <div className="absolute inset-0 bg-slate-950/60 mix-blend-multiply" />
           </div>
         </div>
 
-        {/* Spaces Carousel Section (Avito Style) */}
+        {/* Spaces Carousel / Grid */}
         <div>
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-5 sm:mb-6">
+          <div className="flex items-center justify-between mb-8">
             <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">{t.spacesTitle}</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{t.spacesSub}</p>
+              <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">{t.spacesTitle}</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{t.spacesSub}</p>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={onPrevSpace}
-                className="p-2.5 sm:p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 shadow-sm transition"
-                aria-label="Предыдущее пространство"
-              >
-                <Icon name="arrow-left" className="w-5 h-5" />
-              </button>
-              <button
-                onClick={onNextSpace}
-                className="p-2.5 sm:p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 shadow-sm transition"
-                aria-label="Следующее пространство"
-              >
-                <Icon name="arrow-right" className="w-5 h-5" />
-              </button>
+            <div className="flex items-center space-x-3">
+              <span className="text-xs font-bold text-slate-400">
+                {carouselIndex + 1} / {spaceList.length}
+              </span>
+              <div className="flex items-center space-x-1.5">
+                <button
+                  onClick={onPrevSpace}
+                  className="p-2.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 shadow-sm transition"
+                  aria-label="Предыдущее пространство"
+                >
+                  <Icon name="chevron-left" className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                </button>
+                <button
+                  onClick={onNextSpace}
+                  className="p-2.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 shadow-sm transition"
+                  aria-label="Следующее пространство"
+                >
+                  <Icon name="chevron-right" className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Spaces Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
             {spaceList.map((key) => {
               const space = spacesData[key];
               if (!space) return null;
+              const fav = isFavorite ? isFavorite(space.id) : false;
               return (
                 <div
                   key={key}
-                  className={`card-interactive bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm hover:shadow-xl cursor-pointer group flex flex-col ${
+                  onClick={() => onSelectSpace(key)}
+                  className={`bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group flex flex-col relative ${
                     currentSpaceKey === key ? 'ring-2 ring-brand-600' : ''
                   }`}
                 >
-                  <div
-                    className="h-44 sm:h-48 bg-slate-200 dark:bg-slate-700 relative overflow-hidden shrink-0"
-                    onClick={() => onOpenSpaceFullPage(key)}
-                  >
+                  <div className="h-52 bg-slate-100 dark:bg-slate-800 relative overflow-hidden">
                     <img
                       src={space.image}
-                      alt={space.name}
+                      alt={spaceName(space, lang)}
                       className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
                     />
-                    <div className="absolute top-3 left-3 bg-brand-600 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow">
-                      {space.type}
+
+                    <div className="absolute top-3 left-3 bg-brand-600 text-white text-[11px] font-bold px-3 py-1 rounded-xl uppercase tracking-wider shadow">
+                      {spaceType(space, lang)}
                     </div>
-                    <div className="absolute bottom-3 right-3 bg-black/70 backdrop-blur-md text-white text-xs px-2.5 py-1 rounded-lg font-bold">
+
+                    {onToggleFavorite && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleFavorite(space.id);
+                        }}
+                        className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/90 dark:bg-slate-800/90 shadow-md flex items-center justify-center transition hover:scale-110"
+                        aria-label="Избранное"
+                      >
+                        <Icon
+                          name="heart"
+                          className={`w-4 h-4 transition-colors ${
+                            fav ? 'fill-rose-500 text-rose-500' : 'fill-transparent text-slate-500'
+                          }`}
+                        />
+                      </button>
+                    )}
+
+                    <div className="absolute bottom-3 right-3 bg-black/80 backdrop-blur-md text-white text-xs px-3.5 py-1.5 rounded-xl font-bold">
                       {space.price}
                     </div>
                   </div>
-                  <div className="p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-4">
-                    <div onClick={() => onOpenSpaceFullPage(key)}>
-                      <h3 className="text-lg sm:text-xl font-bold group-hover:text-brand-600 transition line-clamp-1">
-                        {space.name}
+
+                  <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1 text-xs font-bold text-amber-500">
+                        <span>★</span>
+                        <span>{space.rating}</span>
+                        <span className="text-slate-400 font-normal">({space.reviewsCount})</span>
+                      </div>
+
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white group-hover:text-brand-600 transition">
+                        {spaceName(space, lang)}
                       </h3>
-                      <p className="text-slate-600 dark:text-slate-300 text-xs sm:text-sm mt-1 line-clamp-3">
-                        {space.desc}
+                      <p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed line-clamp-2">
+                        {spaceDesc(space, lang)}
                       </p>
                     </div>
-                    <div className="flex items-center justify-between gap-2 pt-4 border-t border-slate-100 dark:border-slate-700 text-sm">
+
+                    <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800 text-xs">
                       <button
-                        onClick={() => onSelectSpace(key)}
-                        className="text-brand-600 font-semibold hover:underline flex items-center gap-1 text-xs sm:text-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectSpace(key);
+                        }}
+                        className="text-brand-600 font-bold hover:underline flex items-center gap-1.5"
                       >
-                        <Icon name="map" className="w-4 h-4 shrink-0" /> <span>На карту</span>
+                        <Icon name="map" className="w-3.5 h-3.5" />
+                        <span>{lang === 'ru' ? 'Открыть карту' : 'Open Map'}</span>
                       </button>
                       <button
-                        onClick={() => onOpenSpaceFullPage(key)}
-                        className="bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenSpaceFullPage(key);
+                        }}
+                        className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-xs"
                       >
-                        <span>Обзор и 360°</span> <Icon name="arrow-right" className="w-3.5 h-3.5 shrink-0" />
+                        <span>{lang === 'ru' ? 'Панорама 360°' : '360° Panorama'}</span>
+                        <Icon name="rotate-3d" className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -164,6 +234,7 @@ export interface MapNavigationViewProps {
   selectedPoi: RichPoiItem | null;
   isEmbed?: boolean;
   isFavorite: (id: string) => boolean;
+  onBackToSpaces?: () => void;
   onChangeBuilding: (b: string) => void;
   onChangeFloor: (f: number) => void;
   onChangeRouteFrom: (id: string) => void;
@@ -194,6 +265,7 @@ export const MapNavigationView: React.FC<MapNavigationViewProps> = ({
   selectedPoi,
   isEmbed = false,
   isFavorite,
+  onBackToSpaces,
   onChangeBuilding,
   onChangeFloor,
   onChangeRouteFrom,
@@ -209,289 +281,522 @@ export const MapNavigationView: React.FC<MapNavigationViewProps> = ({
   onResetZoom,
 }: MapNavigationViewProps) => {
   const t = i18n[lang];
-  const floors = currentSpace.buildings[activeBuilding]?.floors ?? [1];
-  const visiblePois = currentSpace.pois.filter(
-    (p) => p.building === activeBuilding && p.floor === activeFloor,
-  );
-  const poisToRender = visiblePois.length > 0 ? visiblePois : currentSpace.pois;
+  const [selectedCategory, setSelectedCategory] = useState<'all' | 'meeting' | 'entrance' | 'service'>('all');
 
+  const floors = currentSpace.buildings[activeBuilding]?.floors ?? [1];
+  const categoryFilteredPois = currentSpace.pois.filter((p) => {
+    if (selectedCategory === 'all') return true;
+    if (p.filterCategory) return p.filterCategory === selectedCategory;
+    if (selectedCategory === 'entrance') return p.category === 'entrance';
+    if (selectedCategory === 'meeting') return p.category === 'hall';
+    return p.category === 'service_desk' || p.category === 'booth' || p.category === 'wifi' || p.category === 'custom';
+  });
+
+  const poisToRender = categoryFilteredPois.length > 0 ? categoryFilteredPois : currentSpace.pois;
+  const activePoi = selectedPoi ?? poisToRender[0] ?? currentSpace.pois[0] ?? null;
+
+  // Map polyline from backend (700x500) to SVG viewport (720x400)
+  const scaleX = 720 / (publicSnapshot?.width_units || 700);
+  const scaleY = 400 / (publicSnapshot?.height_units || 500);
   const polylinePoints =
     routeResponse && routeResponse.polyline.length >= 2
-      ? routeResponse.polyline.map((pt) => `${pt.x},${pt.y}`).join(' ')
+      ? routeResponse.polyline
+          .map((pt) => `${Math.round(pt.x * scaleX)},${Math.round(pt.y * scaleY)}`)
+          .join(' ')
       : null;
 
+  const equipmentItems = (activePoi?.equipment || 'Стойка информации, Турникеты, Инфо-терминал')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden relative animate-view-enter">
-      {/* Left Controls Sidebar */}
+    <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative min-h-[600px] animate-view-enter">
+      {/* Left Sidebar */}
       <div
         className={`${
-          isEmbed ? 'w-full lg:w-72' : 'w-full lg:w-80 xl:w-96'
-        } shrink-0 bg-white dark:bg-slate-800 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-700 flex flex-col z-20 shadow-sm lg:shadow-lg lg:h-full lg:overflow-y-auto custom-scrollbar`}
+          isEmbed ? 'w-full md:w-72' : 'w-full md:w-80 lg:w-96'
+        } bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-20 shadow-lg overflow-y-auto custom-scrollbar shrink-0`}
       >
-        <div className="p-3.5 sm:p-4 border-b border-slate-100 dark:border-slate-700 space-y-3">
-          {/* Building Switcher */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider shrink-0">
-              {t.buildingLabel}
-            </span>
-            <select
-              value={activeBuilding}
-              onChange={(e) => onChangeBuilding(e.target.value)}
-              className="bg-slate-100 dark:bg-slate-700 text-xs font-semibold rounded-lg px-2.5 py-1.5 border border-slate-200 dark:border-slate-600 truncate max-w-[200px]"
-            >
-              {Object.entries(currentSpace.buildings).map(([bKey, bld]) => (
-                <option key={bKey} value={bKey}>
-                  {bld.name}
-                </option>
-              ))}
-            </select>
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold text-brand-600 uppercase tracking-wider block truncate">
+                {spaceType(currentSpace, lang)}
+              </span>
+              <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white leading-tight truncate">
+                {spaceName(currentSpace, lang)}
+              </h2>
+            </div>
+            {onBackToSpaces && !isEmbed && (
+              <button
+                onClick={onBackToSpaces}
+                className="text-xs text-slate-500 hover:text-brand-600 flex items-center gap-1 font-semibold shrink-0"
+              >
+                <Icon name="arrow-left" className="w-3 h-3" />
+                <span>{lang === 'ru' ? 'Сменить' : 'Change'}</span>
+              </button>
+            )}
           </div>
 
+          {/* Building selector when space has multiple buildings */}
+          {Object.keys(currentSpace.buildings).length > 1 && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
+                {t.buildingLabel}
+              </span>
+              <select
+                value={activeBuilding}
+                onChange={(e) => onChangeBuilding(e.target.value)}
+                className="bg-slate-100 dark:bg-slate-800 text-xs font-semibold rounded-xl px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 truncate max-w-[210px]"
+              >
+                {Object.entries(currentSpace.buildings).map(([bKey, bld]) => (
+                  <option key={bKey} value={bKey}>
+                    {lang === 'en' && bld.nameEn ? bld.nameEn : bld.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Floor Switcher */}
-          <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-xl gap-1">
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
             {floors.map((floor) => (
               <button
                 key={floor}
                 onClick={() => onChangeFloor(floor)}
-                className={`flex-1 py-1.5 px-2 rounded-lg text-xs transition text-center whitespace-nowrap ${
+                className={`flex-1 py-1.5 rounded-lg text-xs transition text-center ${
                   activeFloor === floor
-                    ? 'bg-white dark:bg-slate-600 text-brand-600 font-bold shadow-sm'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-600/50'
+                    ? 'bg-white dark:bg-slate-700 text-brand-600 font-bold shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300'
                 }`}
               >
-                {t.floorLabel} {floor}
+                {(lang === 'en' ? 'Floor ' : 'Этаж ') + floor}
+              </button>
+            ))}
+          </div>
+
+          {/* Category Filter Pills */}
+          <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar text-xs">
+            {(
+              [
+                ['all', lang === 'ru' ? 'Все' : 'All'],
+                ['meeting', lang === 'ru' ? 'Переговорные' : 'Meeting'],
+                ['entrance', lang === 'ru' ? 'Входы' : 'Entrances'],
+                ['service', lang === 'ru' ? 'Стойки' : 'Desks'],
+              ] as const
+            ).map(([catKey, label]) => (
+              <button
+                key={catKey}
+                onClick={() => {
+                  setSelectedCategory(catKey);
+                  const matching = currentSpace.pois.find((p) =>
+                    catKey === 'all' ? true : p.filterCategory === catKey,
+                  );
+                  if (matching) onSelectPoi(matching);
+                }}
+                className={`px-3 py-1 rounded-xl whitespace-nowrap transition ${
+                  selectedCategory === catKey
+                    ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Route Builder Box */}
-        <div className="p-3.5 sm:p-4 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-              <Icon name="navigation" className="w-4 h-4 text-brand-600" /> <span>{t.routeTitle}</span>
-            </h3>
-            {routeActive && (
-              <button onClick={onClearRoute} className="text-xs text-red-500 hover:underline font-medium">
-                {t.resetBtn}
-              </button>
-            )}
-          </div>
+        {/* Selected POI Detail Card (Update Design) */}
+        <div className="p-4 sm:p-5 flex-1 space-y-4">
+          {activePoi && (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm space-y-3">
+              <div className="h-40 relative overflow-hidden bg-slate-900">
+                <img
+                  src={
+                    activePoi.image ||
+                    'https://images.unsplash.com/photo-1517502884422-41eaead166d4?auto=format&fit=crop&w=800&q=80'
+                  }
+                  alt={poiName(activePoi, lang)}
+                  className="w-full h-full object-cover"
+                />
 
-          <div className="space-y-2">
-            <select
-              value={routeFrom}
-              onChange={(e) => onChangeRouteFrom(e.target.value)}
-              className="w-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-xs"
-            >
-              <option value="">{t.routeFrom}</option>
-              {currentSpace.pois.map((poi) => (
-                <option key={poi.id} value={poi.id}>
-                  {poi.name} (Корп. {poi.building}, Эт. {poi.floor})
-                </option>
-              ))}
-            </select>
-            <select
-              value={routeTo}
-              onChange={(e) => onChangeRouteTo(e.target.value)}
-              className="w-full bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-3 py-2 text-xs"
-            >
-              <option value="">{t.routeTo}</option>
-              {currentSpace.pois.map((poi) => (
-                <option key={poi.id} value={poi.id}>
-                  {poi.name} (Корп. {poi.building}, Эт. {poi.floor})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={() => onBuildRoute()}
-            className="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2 rounded-xl text-xs transition shadow-md flex items-center justify-center gap-1.5"
-          >
-            <Icon name="route" className="w-4 h-4" /> <span>{t.buildRouteBtn}</span>
-          </button>
-
-          {/* Server Dijkstra Route Summary & Panorama Walkthrough */}
-          {routeActive && routeResponse && (
-            <div className="p-3 rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-xs space-y-2 animate-view-enter">
-              <div className="flex items-center justify-between font-semibold">
-                <span>Дистанция маршрута:</span>
-                <span className="text-brand-600">
-                  {routeResponse.distance_m !== null
-                    ? `${routeResponse.distance_m.toFixed(1)} м`
-                    : `${Math.round(routeResponse.distance_units)} ед.`}
+                <span className="absolute top-2.5 left-2.5 bg-emerald-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-lg uppercase tracking-wider shadow">
+                  {lang === 'ru' ? 'ДОСТУПНА 3D' : '3D READY'}
                 </span>
+
+                <button
+                  onClick={() => onOpenPanorama(activePoi)}
+                  className="absolute bottom-2.5 left-2.5 right-2.5 bg-black/75 backdrop-blur-md text-white text-xs py-2 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-lg border border-white/25 hover:bg-black/90 transition"
+                >
+                  <Icon name="rotate-3d" className="w-3.5 h-3.5" />
+                  <span>{lang === 'ru' ? '360° СМОТРЕТЬ ПАНОРАМУ' : '360° VIEW PANORAMA'}</span>
+                </button>
               </div>
-              {routeResponse.walk.available ? (
-                <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-600">
-                  <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                    Виртуальный проход по панорамам ({routeResponse.walk.steps.length} шага):
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
+
+              <div className="p-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
+                      {poiName(activePoi, lang)}
+                    </h3>
+                    <p className="text-[11px] font-semibold text-brand-600 mt-0.5 flex items-center gap-1">
+                      <Icon name="map-pin" className="w-3 h-3" />
+                      <span>
+                        {lang === 'ru'
+                          ? `Корпус ${activePoi.building}, Этаж ${activePoi.floor}`
+                          : `Building ${activePoi.building}, Floor ${activePoi.floor}`}
+                      </span>
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onToggleFavorite(activePoi.id)}
+                    className={`p-2 rounded-xl bg-slate-100 dark:bg-slate-800 transition ${
+                      isFavorite(activePoi.id) ? 'text-rose-500' : 'text-slate-500 hover:text-rose-500'
+                    }`}
+                    title={lang === 'ru' ? 'В избранное' : 'Bookmark'}
+                  >
+                    <Icon name="bookmark" className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-2 text-xs border-t border-b border-slate-100 dark:border-slate-800 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <Icon name="users" className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{t.capacity}:</span>
+                    </span>
+                    <span className="font-bold text-slate-900 dark:text-white">{activePoi.capacity}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5 shrink-0">
+                      <Icon name="monitor" className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{t.equipment}:</span>
+                    </span>
+                    <div className="flex items-center justify-end gap-1.5 font-bold text-slate-900 dark:text-white text-right flex-wrap">
+                      {equipmentItems.map((eq, i) => (
+                        <React.Fragment key={i}>
+                          {i > 0 && <span className="text-slate-300 dark:text-slate-600">•</span>}
+                          <span>{eq}</span>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                      <Icon name="activity" className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{lang === 'ru' ? 'Статус:' : 'Status:'}</span>
+                    </span>
+                    <span
+                      className={`font-bold flex items-center gap-1 ${
+                        activePoi.statusKind === 'busy'
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          activePoi.statusKind === 'busy' ? 'bg-rose-500' : 'bg-emerald-500'
+                        }`}
+                      />
+                      <span>{poiStatus(activePoi, lang)}</span>
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => onBuildRoute(activePoi.id)}
+                  className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 rounded-xl text-xs transition shadow-md flex items-center justify-center gap-1.5"
+                >
+                  <span>{t.buildRouteBtn}</span>
+                  <Icon name="navigation" className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Route Builder & Server Dijkstra Walkthrough Panel */}
+          <div className="bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-2.5 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <Icon name="route" className="w-3.5 h-3.5 text-brand-600" />
+                <span>{t.routeTitle}</span>
+              </span>
+              {routeActive && (
+                <button onClick={onClearRoute} className="text-rose-500 hover:underline font-bold">
+                  {t.resetBtn}
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              <select
+                value={routeFrom}
+                onChange={(e) => onChangeRouteFrom(e.target.value)}
+                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs"
+              >
+                <option value="">{t.routeFrom}</option>
+                {currentSpace.pois.map((poi) => (
+                  <option key={poi.id} value={poi.id}>
+                    {poiName(poi, lang)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={routeTo}
+                onChange={(e) => onChangeRouteTo(e.target.value)}
+                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs"
+              >
+                <option value="">{t.routeTo}</option>
+                {currentSpace.pois.map((poi) => (
+                  <option key={poi.id} value={poi.id}>
+                    {poiName(poi, lang)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {routeActive && routeResponse && (
+              <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-1.5">
+                <div className="flex items-center justify-between font-bold">
+                  <span>{lang === 'ru' ? 'Дистанция:' : 'Distance:'}</span>
+                  <span className="text-brand-600">
+                    {routeResponse.distance_m !== null
+                      ? `${routeResponse.distance_m.toFixed(1)} м`
+                      : `${Math.round(routeResponse.distance_units)} ед.`}
+                  </span>
+                </div>
+                {routeResponse.walk.available ? (
+                  <div className="flex flex-wrap gap-1 pt-1">
                     {routeResponse.walk.steps.map((step, idx) => (
                       <button
                         key={step.node_id}
                         onClick={() => onStartWalkthroughStep(idx)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
+                        className={`px-2 py-1 rounded-lg text-[11px] font-bold transition ${
                           walkStepIndex === idx
                             ? 'bg-brand-600 text-white'
-                            : 'bg-slate-100 dark:bg-slate-600 text-slate-700 dark:text-slate-200'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
                         }`}
                       >
-                        Шаг {idx + 1} ({Math.round(step.yaw_deg)}°)
+                        {lang === 'ru' ? 'Шаг' : 'Step'} {idx + 1} ({Math.round(step.yaw_deg)}°)
                       </button>
                     ))}
                   </div>
-                </div>
-              ) : (
-                routeResponse.walk.gaps.length > 0 && (
-                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                    2D-маршрут построен. Панорамный проход недоступен ({routeResponse.walk.gaps[0].reason}).
-                  </p>
-                )
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Selected Point Detail Card */}
-        <div className="p-3.5 sm:p-4 flex-1 space-y-3">
-          {selectedPoi && (
-            <div className="space-y-3 bg-white dark:bg-slate-700 rounded-2xl border border-slate-200 dark:border-slate-600 overflow-hidden shadow-sm animate-view-enter">
-              <div className="h-32 sm:h-36 relative">
-                <img src={selectedPoi.image} alt={selectedPoi.name} className="w-full h-full object-cover" />
-                <button
-                  onClick={() => onOpenPanorama(selectedPoi)}
-                  className="absolute bottom-3 right-3 bg-black/75 hover:bg-black text-white text-xs px-3 py-1.5 rounded-lg backdrop-blur-md flex items-center gap-1.5 font-medium shadow"
-                >
-                  <Icon name="rotate-3d" className="w-3.5 h-3.5" /> <span>{t.panoBtn}</span>
-                </button>
-
-                <button
-                  onClick={() => onToggleFavorite(selectedPoi.id)}
-                  className="absolute top-3 right-3 p-2 rounded-full bg-white/85 dark:bg-slate-800/85 shadow-md transition"
-                  aria-label="В избранное"
-                >
-                  <Icon
-                    name="heart"
-                    className={`w-4 h-4 transition-colors duration-150 ${
-                      isFavorite(selectedPoi.id) ? 'fill-red-500 text-red-500' : 'text-slate-400'
-                    }`}
-                  />
-                </button>
+                ) : (
+                  routeResponse.walk.gaps.length > 0 && (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                      {lang === 'ru'
+                        ? `2D-маршрут активен (${routeResponse.walk.gaps[0].reason})`
+                        : `2D route active (${routeResponse.walk.gaps[0].reason})`}
+                    </p>
+                  )
+                )}
               </div>
-              <div className="p-3.5 sm:p-4 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-bold text-sm sm:text-base leading-snug">{selectedPoi.name}</h3>
-                  <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                    {selectedPoi.status}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-300">
-                  Корпус {selectedPoi.building}, Этаж {selectedPoi.floor}
-                </p>
-
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-600 text-xs space-y-1.5 text-slate-600 dark:text-slate-300">
-                  <div className="flex items-center gap-2">
-                    <Icon name="users" className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span className="truncate">
-                      {t.capacity}: {selectedPoi.capacity}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Icon name="tv" className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span className="line-clamp-2">
-                      {t.equipment}: {selectedPoi.equipment}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Icon name="wifi" className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span className="truncate">
-                      {t.wifi}: {selectedPoi.wifi}
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => onBuildRoute(selectedPoi.id)}
-                  className="w-full bg-brand-600 hover:bg-brand-700 text-white py-2 rounded-xl text-xs font-semibold transition mt-2 shadow-sm"
-                >
-                  {t.routeHere}
-                </button>
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
-      {/* 2D Canvas Viewport with Zoom In/Out Controls */}
-      <div className="flex-1 min-w-0 min-h-[420px] lg:min-h-0 bg-slate-100 dark:bg-slate-900 relative flex items-center justify-center p-3 sm:p-5 lg:p-6 overflow-hidden select-none">
-        <div className="relative w-full max-w-5xl bg-white dark:bg-slate-800 rounded-2xl sm:rounded-3xl shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col h-full max-h-[820px]">
-          {/* Toolbar Zoom Buttons */}
-          <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 sm:px-6 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-2 z-10 shrink-0">
-            <div className="flex flex-wrap items-center gap-2 min-w-0">
-              <span className="font-bold text-sm sm:text-base truncate">{currentSpace.name}</span>
-              <span className="text-xs bg-slate-100 dark:bg-slate-700 px-2.5 py-1 rounded-full font-medium whitespace-nowrap">
-                Корпус {activeBuilding} • Этаж {activeFloor}
+      {/* Right Interactive SVG Map */}
+      <div className="flex-1 bg-white dark:bg-slate-950 overflow-y-auto p-4 sm:p-6 custom-scrollbar space-y-6">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-[520px] relative dark:shadow-[0_0_35px_rgba(249,115,22,0.12)]">
+          <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-3 flex items-center justify-between z-10">
+            <div className="flex items-center space-x-3">
+              <span className="font-bold text-slate-900 dark:text-white text-sm">
+                {spaceName(currentSpace, lang)}
+              </span>
+              <span className="text-xs bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-full font-medium">
+                {(lang === 'ru' ? 'Корпус ' : 'Building ') +
+                  activeBuilding +
+                  ' • ' +
+                  (lang === 'ru' ? 'Этаж ' : 'Floor ') +
+                  activeFloor}
               </span>
               {publicSnapshot && (
-                <span className="text-[11px] bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2.5 py-0.5 rounded-full font-semibold hidden sm:inline-block whitespace-nowrap">
-                  Live API v{publicSnapshot.revision}
+                <span className="text-[11px] bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2.5 py-0.5 rounded-full font-semibold hidden sm:inline-block">
+                  v{publicSnapshot.revision}
                 </span>
               )}
             </div>
-            <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+            <div className="flex items-center space-x-1.5">
               <button
                 onClick={onZoomIn}
-                className="p-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
-                title="Приблизить"
+                className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
+                title={lang === 'ru' ? 'Приблизить' : 'Zoom in'}
               >
                 <Icon name="zoom-in" className="w-4 h-4" />
               </button>
               <button
                 onClick={onZoomOut}
-                className="p-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
-                title="Отдалить"
+                className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
+                title={lang === 'ru' ? 'Отдалить' : 'Zoom out'}
               >
                 <Icon name="zoom-out" className="w-4 h-4" />
               </button>
               <button
                 onClick={onResetZoom}
-                className="p-2 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
-                title="Сбросить масштаб"
+                className="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
+                title={lang === 'ru' ? 'Сбросить масштаб' : 'Reset zoom'}
               >
                 <Icon name="maximize-2" className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* Interactive SVG Plan — Responsive Aspect Ratio Container */}
-          <div className="flex-1 min-h-0 relative overflow-auto flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-3 sm:p-6 custom-scrollbar">
+          <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-slate-50 dark:bg-slate-900/80 p-4">
             <div
-              className="relative map-stage-aspect transition-transform duration-300 origin-center"
+              className="relative transition-transform duration-300"
               style={{ transform: `scale(${zoomLevel})` }}
             >
               <svg
-                className="w-full h-full block bg-white dark:bg-slate-800 rounded-2xl shadow-inner border border-slate-200 dark:border-slate-700"
-                viewBox="0 0 700 500"
-                preserveAspectRatio="xMidYMid meet"
+                className="w-[720px] h-[400px] max-w-full bg-white dark:bg-slate-900 rounded-2xl border-2 border-slate-300 dark:border-slate-700"
+                viewBox="0 0 720 400"
               >
-                <rect x="40" y="40" width="620" height="420" rx="16" stroke="#94a3b8" strokeWidth="4" fill="none" />
-                <line x1="220" y1="40" x2="220" y2="460" stroke="#cbd5e1" strokeWidth="3" />
-                <line x1="480" y1="40" x2="480" y2="250" stroke="#cbd5e1" strokeWidth="3" />
-                <line x1="220" y1="250" x2="660" y2="250" stroke="#cbd5e1" strokeWidth="3" />
+                <defs>
+                  <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                    <path
+                      d="M 20 0 L 0 0 0 20"
+                      fill="none"
+                      stroke="#f1f5f9"
+                      className="dark:stroke-slate-800"
+                      strokeWidth="1"
+                    />
+                  </pattern>
+                </defs>
+                <rect width="720" height="400" fill="url(#grid)" />
 
-                <text x="120" y="100" fill="#64748b" fontSize="12" fontWeight="600">
-                  Зона ресепшн
+                {/* Architectural Floor Plan Walls */}
+                <path
+                  d="M 40,40 L 680,40 L 680,360 L 220,360 L 220,280 L 40,280 Z"
+                  fill="none"
+                  className="stroke-slate-900 dark:stroke-slate-100"
+                  strokeWidth="7"
+                  strokeLinejoin="round"
+                />
+
+                <line
+                  x1="240"
+                  y1="40"
+                  x2="240"
+                  y2="280"
+                  className="stroke-slate-900 dark:stroke-slate-100"
+                  strokeWidth="4"
+                />
+                <line
+                  x1="420"
+                  y1="40"
+                  x2="420"
+                  y2="200"
+                  className="stroke-slate-900 dark:stroke-slate-100"
+                  strokeWidth="4"
+                />
+                <line
+                  x1="420"
+                  y1="200"
+                  x2="680"
+                  y2="200"
+                  className="stroke-slate-900 dark:stroke-slate-100"
+                  strokeWidth="4"
+                />
+                <line
+                  x1="560"
+                  y1="40"
+                  x2="560"
+                  y2="130"
+                  className="stroke-slate-900 dark:stroke-slate-100"
+                  strokeWidth="3"
+                />
+                <line
+                  x1="560"
+                  y1="130"
+                  x2="680"
+                  y2="130"
+                  className="stroke-slate-900 dark:stroke-slate-100"
+                  strokeWidth="3"
+                />
+                <line
+                  x1="500"
+                  y1="200"
+                  x2="500"
+                  y2="360"
+                  className="stroke-slate-900 dark:stroke-slate-100"
+                  strokeWidth="4"
+                />
+
+                {/* Orange window borders */}
+                <line x1="100" y1="40" x2="180" y2="40" stroke="#f97316" strokeWidth="4" />
+                <line x1="280" y1="40" x2="380" y2="40" stroke="#f97316" strokeWidth="4" />
+                <line x1="460" y1="40" x2="520" y2="40" stroke="#f97316" strokeWidth="4" />
+
+                {/* Room names */}
+                <text
+                  x="140"
+                  y="165"
+                  className="fill-slate-800 dark:fill-slate-200"
+                  fontSize="11"
+                  fontWeight="800"
+                  textAnchor="middle"
+                >
+                  {lang === 'ru' ? 'СПАЛЬНЯ 1' : 'BEDROOM 1'}
                 </text>
-                <text x="290" y="100" fill="#64748b" fontSize="12" fontWeight="600">
-                  Переговорная Альфа
+                <text
+                  x="330"
+                  y="165"
+                  className="fill-slate-800 dark:fill-slate-200"
+                  fontSize="11"
+                  fontWeight="800"
+                  textAnchor="middle"
+                >
+                  {lang === 'ru' ? 'ГОСТИНАЯ' : 'LIVING ROOM'}
+                </text>
+                <text
+                  x="490"
+                  y="90"
+                  className="fill-slate-800 dark:fill-slate-200"
+                  fontSize="10"
+                  fontWeight="800"
+                  textAnchor="middle"
+                >
+                  {lang === 'ru' ? 'КУХНЯ' : 'KITCHEN'}
+                </text>
+                <text
+                  x="620"
+                  y="85"
+                  className="fill-slate-800 dark:fill-slate-200"
+                  fontSize="9"
+                  fontWeight="800"
+                  textAnchor="middle"
+                >
+                  {lang === 'ru' ? 'ВАННАЯ' : 'BATHROOM'}
+                </text>
+                <text
+                  x="600"
+                  y="280"
+                  className="fill-slate-800 dark:fill-slate-200"
+                  fontSize="10"
+                  fontWeight="800"
+                  textAnchor="middle"
+                >
+                  {lang === 'ru' ? 'СПАЛЬНЯ 2' : 'BEDROOM 2'}
+                </text>
+                <text
+                  x="360"
+                  y="325"
+                  className="fill-slate-800 dark:fill-slate-200"
+                  fontSize="10"
+                  fontWeight="800"
+                  textAnchor="middle"
+                >
+                  {lang === 'ru' ? 'КОРИДОР' : 'HALLWAY'}
                 </text>
 
-                {/* Custom shapes from live backend document */}
+                {/* Live backend custom shapes */}
                 {publicSnapshot?.document.shapes.map((shape) => {
-                  const pts = shape.points.map((p) => `${p.x},${p.y}`).join(' ');
+                  const pts = shape.points
+                    .map((p) => `${Math.round(p.x * scaleX)},${Math.round(p.y * scaleY)}`)
+                    .join(' ');
                   return shape.kind === 'wall' ? (
                     <polyline key={shape.id} points={pts} fill="none" stroke="#94a3b8" strokeWidth="3" />
                   ) : (
@@ -500,67 +805,105 @@ export const MapNavigationView: React.FC<MapNavigationViewProps> = ({
                       points={pts}
                       fill="rgba(227, 27, 35, 0.04)"
                       stroke="#cbd5e1"
-                      strokeWidth="2"
+                      strokeWidth="1.5"
                     />
                   );
                 })}
 
+                {/* Active Route Path */}
                 {routeActive &&
                   (polylinePoints ? (
-                    <polyline
-                      points={polylinePoints}
-                      stroke="#ef4444"
-                      strokeWidth="4"
-                      strokeDasharray="6 6"
-                      fill="none"
-                      className="animate-route"
-                    />
+                    <g>
+                      <polyline
+                        points={polylinePoints}
+                        stroke="#E31B23"
+                        strokeWidth="3.5"
+                        strokeDasharray="6 6"
+                        fill="none"
+                        className="animate-route"
+                      />
+                      {routeResponse && routeResponse.polyline.length >= 2 && (
+                        <>
+                          <circle
+                            cx={Math.round(routeResponse.polyline[0].x * scaleX)}
+                            cy={Math.round(routeResponse.polyline[0].y * scaleY)}
+                            r="5.5"
+                            fill="#E31B23"
+                          />
+                          <circle
+                            cx={Math.round(
+                              routeResponse.polyline[routeResponse.polyline.length - 1].x * scaleX,
+                            )}
+                            cy={Math.round(
+                              routeResponse.polyline[routeResponse.polyline.length - 1].y * scaleY,
+                            )}
+                            r="5.5"
+                            fill="#E31B23"
+                          />
+                        </>
+                      )}
+                    </g>
                   ) : (
-                    <path
-                      d="M 120 120 Q 200 150 320 120 T 540 320"
-                      stroke="#ef4444"
-                      strokeWidth="4"
-                      strokeDasharray="6 6"
-                      fill="none"
-                      className="animate-route"
-                    />
+                    <g>
+                      <path
+                        d="M 200,320 L 280,320 L 280,150 L 480,150 M 480,150 L 480,260 L 580,260"
+                        stroke="#E31B23"
+                        strokeWidth="3.5"
+                        strokeDasharray="6 6"
+                        fill="none"
+                        className="animate-route"
+                      />
+                      <circle cx="200" cy="320" r="5.5" fill="#E31B23" />
+                      <circle cx="580" cy="260" r="5.5" fill="#E31B23" />
+                    </g>
                   ))}
-              </svg>
 
-              {/* POI Pins overlay */}
-              {poisToRender.map((poi) => {
-                const isSelected = selectedPoi?.id === poi.id;
-                return (
-                  <div
-                    key={poi.id}
-                    onClick={() => onSelectPoi(poi)}
-                    className="absolute cursor-pointer group transform -translate-x-1/2 -translate-y-1/2 transition-transform duration-200 hover:scale-110 z-10"
-                    style={{ left: `${poi.x}%`, top: `${poi.y}%` }}
-                  >
-                    {isSelected && (
-                      <span className="absolute inset-0 rounded-full bg-brand-600/40 animate-pulse-ring pointer-events-none" />
-                    )}
-                    <div
-                      className={`relative border-2 border-brand-600 rounded-full p-2 shadow-lg flex items-center justify-center transition-all duration-200 ${
-                        isSelected
-                          ? 'bg-brand-600 text-white scale-125'
-                          : 'bg-white dark:bg-slate-800 text-brand-600'
-                      }`}
+                {/* Interactive POI Badges on SVG */}
+                {poisToRender.map((poi, idx) => {
+                  const isSel = activePoi?.id === poi.id;
+                  const cx = Math.round(poi.x * 6.8);
+                  const cy = Math.round(poi.y * 3.4);
+                  const badgeNum = poi.legacyId ?? 101 + idx;
+                  return (
+                    <g
+                      key={poi.id}
+                      className="cursor-pointer"
+                      onClick={() => onSelectPoi(poi)}
+                      transform={`translate(${cx},${cy})`}
                     >
-                      <Icon name={poi.icon || 'map-pin'} className="w-4 h-4" />
-                    </div>
-                    <div
-                      className={`absolute left-1/2 -translate-x-1/2 top-full mt-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold whitespace-nowrap shadow-md pointer-events-none transition-opacity duration-200 ${
-                        isSelected
-                          ? 'opacity-100 bg-slate-900 text-white'
-                          : 'opacity-0 group-hover:opacity-100 bg-white/95 dark:bg-slate-800/95 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700'
-                      }`}
-                    >
-                      {poi.name}
-                    </div>
-                  </div>
-                );
-              })}
+                      {isSel && (
+                        <circle
+                          cx="0"
+                          cy="0"
+                          r="18"
+                          fill="rgba(227, 27, 35, 0.22)"
+                        />
+                      )}
+                      <circle
+                        cx="0"
+                        cy="0"
+                        r="13"
+                        className={
+                          isSel
+                            ? 'fill-brand-600 stroke-white dark:stroke-slate-900'
+                            : 'fill-slate-900 dark:fill-white stroke-brand-600'
+                        }
+                        strokeWidth="2"
+                      />
+                      <text
+                        x="0"
+                        y="3.5"
+                        className={isSel ? 'fill-white' : 'fill-white dark:fill-slate-900'}
+                        fontSize="9"
+                        fontWeight="bold"
+                        textAnchor="middle"
+                      >
+                        {badgeNum}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
             </div>
           </div>
         </div>

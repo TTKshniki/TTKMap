@@ -219,13 +219,15 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
   };
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
-      <h3 className="font-bold text-base flex items-center gap-2">
-        <Icon name="camera" className="w-5 h-5 text-brand-600" /> Съемка панорам с устройства (16 кадров • 360°)
-      </h3>
-      <p className="text-xs text-slate-500">
-        Пошаговый гид съёмки с камеры смартфона (шаг 22.5°) с последующей серверной сшивкой Hugin или прямая загрузка 2:1 сферы
-      </p>
+    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 space-y-4 shadow-sm">
+      <div className="space-y-1">
+        <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+          2. Мастер съемки панорам с телефона
+        </h3>
+        <p className="text-xs text-slate-400">
+          Инструкция и гид по сшивке серий кадров (16 кадров • шаг 22.5°)
+        </p>
+      </div>
 
       {/* Capture Point Coordinates & Title */}
       <div className="grid grid-cols-3 gap-2 text-xs">
@@ -234,30 +236,30 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
           value={captureTitle}
           onChange={(e) => setCaptureTitle(e.target.value)}
           placeholder="Название панорамы"
-          className="col-span-3 sm:col-span-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2"
+          className="col-span-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2"
         />
         <input
           type="number"
           value={captureX}
           onChange={(e) => setCaptureX(Number(e.target.value))}
           placeholder="X на плане"
-          className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2"
+          className="col-span-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5"
         />
         <input
           type="number"
           value={captureY}
           onChange={(e) => setCaptureY(Number(e.target.value))}
           placeholder="Y на плане"
-          className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2"
+          className="col-span-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5"
         />
       </div>
 
-      <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-xl space-y-3">
+      <div className="space-y-3">
         <button
           onClick={startCameraPanorama}
-          className="w-full bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white py-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition"
+          className="w-full bg-[#121824] hover:bg-slate-800 text-white py-3 rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2"
         >
-          <Icon name="video" className="w-4 h-4" /> Активировать камеру
+          <Icon name="camera" className="w-4 h-4" /> Запустить помощник съемки
         </button>
 
         {cameraError && (

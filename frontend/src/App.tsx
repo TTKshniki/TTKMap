@@ -120,11 +120,17 @@ export function App() {
   });
 
   // Spaces & Public Map Snapshots
-  const [spaceList] = useState<string[]>(['plaza', 'expo', 'hotel']);
+  const [spaceList] = useState<string[]>(['plaza', 'expo', 'hotel', 'hub']);
   const [carouselIndex, setCarouselIndex] = useState<number>(0);
   const [currentSpaceKey, setCurrentSpaceKey] = useState<string>(initialSpaceFromSlug);
   const [spacesData, setSpacesData] = useState<Record<string, SpaceDefinition>>(initialSpacesData);
   const [publicSnapshots, setPublicSnapshots] = useState<Record<string, PublicMap>>({});
+
+  // Top Search & Offline Mode State
+  const [topSearchQuery, setTopSearchQuery] = useState<string>('');
+  const [isOffline, setIsOffline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? !navigator.onLine : false,
+  );
 
   // Map Navigation State
   const [activeBuilding, setActiveBuilding] = useState<string>('A');
@@ -133,7 +139,7 @@ export function App() {
   const [selectedPoi, setSelectedPoi] = useState<RichPoiItem | null>(
     initialSpacesData[initialSpaceFromSlug]?.pois[0] ?? null,
   );
-  const [routeActive, setRouteActive] = useState<boolean>(false);
+  const [routeActive, setRouteActive] = useState<boolean>(true);
   const [routeFrom, setRouteFrom] = useState<string>('');
   const [routeTo, setRouteTo] = useState<string>('');
   const [routeResponse, setRouteResponse] = useState<RouteResponse | null>(null);
@@ -141,10 +147,12 @@ export function App() {
 
   // Favorites
   const [favorites, setFavorites] = useState<string[]>([
+    'plaza',
+    'expo',
     '00000000-0000-4000-8000-000000004001',
     '00000000-0000-4000-8000-000000004002',
-    '1',
-    '2',
+    '101',
+    '102',
   ]);
 
   // Auth & Organizer State
@@ -158,6 +166,8 @@ export function App() {
   const [versionConflictRevision, setVersionConflictRevision] = useState<number | null>(null);
 
   // Modals & Notifications
+  const [adminPasswordModalOpen, setAdminPasswordModalOpen] = useState<boolean>(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState<string>('');
   const [photoSearchModalOpen, setPhotoSearchModalOpen] = useState<boolean>(false);
   const [panoramaModalOpen, setPanoramaModalOpen] = useState<boolean>(false);
   const [activePanoramaPoi, setActivePanoramaPoi] = useState<RichPoiItem | null>(null);
@@ -186,6 +196,26 @@ export function App() {
       setNotificationOpen(false);
     }, 3000);
   }, []);
+
+  // Online / Offline event listeners
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOffline(false);
+      showNotification(lang === 'ru' ? 'Онлайн-режим восстановлен' : 'Online mode restored');
+    };
+    const onOffline = () => {
+      setIsOffline(true);
+      showNotification(
+        lang === 'ru' ? 'Включен офлайн-режим (Кэш)' : 'Offline mode enabled (Cache)',
+      );
+    };
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [lang, showNotification]);
 
   // Sync dark mode class on <html>
   useEffect(() => {
@@ -242,7 +272,7 @@ export function App() {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []);
+  }, [syncPublicMaps]);
 
   // Load owned maps when authenticated with backend
   const loadOrganizerMaps = useCallback(async (preferredMapId?: string) => {
@@ -272,6 +302,7 @@ export function App() {
           name: 'Алексей Шереметьев',
           email: sess.user.email,
           role: 'Организатор ТТК',
+          isAdmin: true,
         });
         setIsBackendOrganizer(true);
         void loadOrganizerMaps();
@@ -279,7 +310,7 @@ export function App() {
       .catch(() => {
         // Not logged in initially
       });
-  }, []);
+  }, [loadOrganizerMaps]);
 
   // Keep selectedPoi valid when space changes
   useEffect(() => {
@@ -321,6 +352,91 @@ export function App() {
     setDarkMode((d) => !d);
   };
 
+  const toggleOfflineMode = () => {
+    setIsOffline((prev) => {
+      const next = !prev;
+      showNotification(
+        next
+          ? lang === 'ru'
+            ? 'Активирован автономный режим (Кэш)'
+            : 'Offline cache mode active'
+          : lang === 'ru'
+            ? 'Подключение к серверу активно'
+            : 'Online connection active',
+      );
+      return next;
+    });
+  };
+
+  const executeTopSearch = () => {
+    const query = topSearchQuery.trim().toLowerCase();
+    if (!query) return;
+
+    for (const key of spaceList) {
+      const sp = spacesData[key];
+      if (!sp) continue;
+      if (
+        sp.name.toLowerCase().includes(query) ||
+        (sp.nameEn && sp.nameEn.toLowerCase().includes(query)) ||
+        sp.desc.toLowerCase().includes(query) ||
+        (sp.descEn && sp.descEn.toLowerCase().includes(query))
+      ) {
+        selectSpace(key);
+        showNotification(
+          (lang === 'ru' ? 'Найдено пространство: ' : 'Space found: ') +
+            (lang === 'en' && sp.nameEn ? sp.nameEn : sp.name),
+        );
+        return;
+      }
+      for (const poi of sp.pois) {
+        if (
+          poi.name.toLowerCase().includes(query) ||
+          (poi.nameEn && poi.nameEn.toLowerCase().includes(query)) ||
+          poi.equipment.toLowerCase().includes(query)
+        ) {
+          setCurrentSpaceKey(key);
+          setActiveBuilding(poi.building);
+          setActiveFloor(poi.floor);
+          setSelectedPoi(poi);
+          setCurrentView('map');
+          showNotification(
+            (lang === 'ru' ? 'Найден объект: ' : 'POI found: ') +
+              (lang === 'en' && poi.nameEn ? poi.nameEn : poi.name),
+          );
+          return;
+        }
+      }
+    }
+    showNotification(
+      lang === 'ru' ? 'По вашему запросу ничего не найдено' : 'No matching objects found',
+    );
+  };
+
+  const attemptAdminAccess = () => {
+    if (isBackendOrganizer || (user && user.isAdmin)) {
+      setCurrentView('admin');
+    } else {
+      setAdminPasswordInput('');
+      setAdminPasswordModalOpen(true);
+    }
+  };
+
+  const verifyAdminPassword = () => {
+    if (adminPasswordInput === 'admin2026') {
+      setUser({
+        name: 'Администратор ТТК',
+        email: 'admin@ttk.ru',
+        role: 'Главный инженер разметки',
+        isAdmin: true,
+      });
+      setAdminPasswordModalOpen(false);
+      setCurrentView('admin');
+      showNotification(lang === 'ru' ? 'Доступ разрешен' : 'Access granted');
+    } else {
+      showNotification(lang === 'ru' ? 'Неверный пароль! (Подсказка: admin2026)' : 'Invalid password!');
+    }
+  };
+
   const prevSpace = () => {
     const nextIdx = (carouselIndex - 1 + spaceList.length) % spaceList.length;
     setCarouselIndex(nextIdx);
@@ -339,7 +455,7 @@ export function App() {
     setActiveFloor(1);
     const targetSpace = spacesData[key] || spacesData.plaza;
     setSelectedPoi(targetSpace.pois[0] || null);
-    setRouteActive(false);
+    setRouteActive(true);
     setRouteResponse(null);
     setCurrentView('map');
     if (isBackendOrganizer) {
@@ -677,93 +793,114 @@ export function App() {
   }
 
   return (
-    <div className="h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 flex flex-col antialiased overflow-hidden">
-      {/* Top Navigation Bar (hidden in compact /embed/:slug mode) */}
+    <div className="min-h-screen text-slate-800 dark:text-slate-100 flex flex-col antialiased justify-between bg-white dark:bg-slate-950 font-sans">
+      {/* Header Navigation (hidden in compact /embed/:slug mode) */}
       {!isEmbedRoute && (
-        <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-40 shadow-sm shrink-0">
-          <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
-            {/* Logo & Brand */}
-            <div className="flex items-center space-x-3 lg:space-x-6 min-w-0">
-              <div
-                className="flex items-center space-x-2.5 cursor-pointer shrink-0"
-                onClick={() => setCurrentView('spaces')}
-              >
-                <div className="bg-brand-600 text-white font-black px-2.5 sm:px-3 py-1.5 rounded-lg text-lg sm:text-xl tracking-wider shadow-md flex items-center gap-1">
-                  <svg
-                    className="w-5 h-5 sm:w-6 sm:h-6 inline-block shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                    />
-                  </svg>
-                  <span>TTK</span>
-                </div>
-                <span className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 hidden xl:inline-block whitespace-nowrap">
-                  Карта пространства
+        <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-40 shadow-xs shrink-0">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
+            {/* Logo Section */}
+            <div
+              className="flex items-center space-x-3 cursor-pointer select-none shrink-0"
+              onClick={() => setCurrentView('spaces')}
+            >
+              <div className="flex flex-col items-start leading-none">
+                <span className="text-3xl sm:text-4xl font-black tracking-tight text-brand-600">
+                  TTK
+                </span>
+                <span className="text-[9px] font-bold tracking-widest text-slate-400 uppercase mt-0.5">
+                  Официальный партнер
                 </span>
               </div>
-
-              {/* Desktop Nav Links */}
-              <nav className="hidden md:flex items-center space-x-1 min-w-0">
-                <button
-                  onClick={() => setCurrentView('spaces')}
-                  className={`px-2.5 lg:px-3 py-2 rounded-lg text-xs lg:text-sm whitespace-nowrap transition ${
-                    currentView === 'spaces'
-                      ? 'bg-slate-100 dark:bg-slate-700 text-brand-600 font-semibold'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {t.navSpaces}
-                </button>
-                <button
-                  onClick={() => setCurrentView('map')}
-                  className={`px-2.5 lg:px-3 py-2 rounded-lg text-xs lg:text-sm whitespace-nowrap transition ${
-                    currentView === 'map'
-                      ? 'bg-slate-100 dark:bg-slate-700 text-brand-600 font-semibold'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {t.navMap}
-                </button>
-                <button
-                  onClick={() => setCurrentView('cabinet')}
-                  className={`px-2.5 lg:px-3 py-2 rounded-lg text-xs lg:text-sm whitespace-nowrap transition ${
-                    currentView === 'cabinet'
-                      ? 'bg-slate-100 dark:bg-slate-700 text-brand-600 font-semibold'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {t.navCabinet}
-                </button>
-                <button
-                  onClick={() => setCurrentView('admin')}
-                  className={`px-2.5 lg:px-3 py-2 rounded-lg text-xs lg:text-sm whitespace-nowrap transition flex items-center gap-1 ${
-                    currentView === 'admin'
-                      ? 'bg-slate-100 dark:bg-slate-700 text-brand-600 font-semibold'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  <Icon name="shield-check" className="w-4 h-4 text-brand-600 shrink-0" />
-                  <span>{t.navAdmin}</span>
-                </button>
-              </nav>
             </div>
 
-            {/* Right Controls, Language & Dark Mode */}
-            <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
-              {/* 2-Language Switcher */}
-              <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-lg text-xs font-bold">
+            {/* Centered Desktop Navigation */}
+            <nav className="hidden md:flex items-center space-x-6 lg:space-x-8 whitespace-nowrap justify-center flex-1">
+              <button
+                onClick={() => setCurrentView('spaces')}
+                className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm transition-all duration-200 ${
+                  currentView === 'spaces'
+                    ? 'bg-slate-100 dark:bg-slate-800 text-brand-600 font-bold'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+              >
+                {t.navSpaces}
+              </button>
+
+              <button
+                onClick={() => setCurrentView('map')}
+                className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm transition-all duration-200 ${
+                  currentView === 'map'
+                    ? 'bg-slate-100 dark:bg-slate-800 text-brand-600 font-bold'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+              >
+                {t.navMap}
+              </button>
+
+              <button
+                onClick={() => setCurrentView('cabinet')}
+                className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm transition-all duration-200 ${
+                  currentView === 'cabinet'
+                    ? 'bg-slate-100 dark:bg-slate-800 text-brand-600 font-bold'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+              >
+                {t.navCabinet}
+              </button>
+
+              <button
+                onClick={attemptAdminAccess}
+                className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm transition-all duration-200 flex items-center gap-2 ${
+                  currentView === 'admin'
+                    ? 'bg-slate-100 dark:bg-slate-800 text-brand-600 font-bold'
+                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                }`}
+              >
+                <Icon name="shield-check" className="w-4 h-4 text-brand-600 shrink-0" />
+                <span>{t.navAdmin}</span>
+              </button>
+            </nav>
+
+            {/* Right Controls */}
+            <div className="flex items-center space-x-3 shrink-0">
+              <div className="relative hidden xl:block w-48">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <Icon name="search" className="w-3.5 h-3.5" />
+                </span>
+                <input
+                  type="text"
+                  value={topSearchQuery}
+                  onChange={(e) => setTopSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') executeTopSearch();
+                  }}
+                  placeholder={t.searchPlaceholder}
+                  className="w-full pl-9 pr-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-brand-600 transition-all"
+                />
+              </div>
+
+              <button
+                onClick={toggleOfflineMode}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition shadow-xs cursor-pointer ${
+                  isOffline
+                    ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-300'
+                    : 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-300'
+                }`}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isOffline ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'
+                  }`}
+                />
+                <span>{isOffline ? t.offlineModeOn : t.offlineModeOff}</span>
+              </button>
+
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700">
                 <button
                   onClick={() => switchLanguage('ru')}
-                  className={`px-2 py-1 rounded transition ${
+                  className={`px-2.5 py-1 rounded-lg transition ${
                     lang === 'ru'
-                      ? 'bg-white dark:bg-slate-600 text-brand-600 shadow-sm'
+                      ? 'bg-white dark:bg-slate-700 text-brand-600 shadow-xs'
                       : 'text-slate-500'
                   }`}
                 >
@@ -771,9 +908,9 @@ export function App() {
                 </button>
                 <button
                   onClick={() => switchLanguage('en')}
-                  className={`px-2 py-1 rounded transition ${
+                  className={`px-2.5 py-1 rounded-lg transition ${
                     lang === 'en'
-                      ? 'bg-white dark:bg-slate-600 text-brand-600 shadow-sm'
+                      ? 'bg-white dark:bg-slate-700 text-brand-600 shadow-xs'
                       : 'text-slate-500'
                   }`}
                 >
@@ -781,34 +918,32 @@ export function App() {
                 </button>
               </div>
 
-              {/* Dark Mode Toggle Button */}
               <button
                 onClick={toggleDarkMode}
-                className="p-2 rounded-lg text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-                title="Тема"
+                className="p-2 rounded-xl text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                title="Переключить тему"
               >
                 {!darkMode ? (
-                  <Icon name="moon" className="w-5 h-5" />
+                  <Icon name="moon" className="w-4 h-4" />
                 ) : (
-                  <Icon name="sun" className="w-5 h-5 text-amber-400" />
+                  <Icon name="sun" className="w-4 h-4 text-amber-400" />
                 )}
               </button>
 
-              {/* Auth Button / Profile Pill */}
               {user ? (
                 <button
                   onClick={() => setCurrentView('cabinet')}
-                  className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition shadow-md max-w-[180px] sm:max-w-[220px]"
+                  className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-sm"
                 >
-                  <Icon name="user" className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline truncate">{user.name}</span>
+                  <Icon name="user" className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline truncate max-w-[140px]">{user.name}</span>
                 </button>
               ) : (
                 <button
                   onClick={() => setCurrentView('auth')}
-                  className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition shadow-md whitespace-nowrap"
+                  className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-sm whitespace-nowrap"
                 >
-                  <Icon name="log-in" className="w-4 h-4 shrink-0" />
+                  <Icon name="log-in" className="w-3.5 h-3.5 shrink-0" />
                   <span>{t.navLogin}</span>
                 </button>
               )}
@@ -816,7 +951,7 @@ export function App() {
               {/* Mobile Menu Button */}
               <button
                 onClick={() => setMobileMenuOpen((o) => !o)}
-                className="md:hidden p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                className="md:hidden p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <Icon name="menu" className="w-6 h-6" />
               </button>
@@ -825,13 +960,13 @@ export function App() {
 
           {/* Mobile Navigation Drawer */}
           {mobileMenuOpen && (
-            <div className="md:hidden border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 flex flex-wrap gap-2 animate-view-enter">
+            <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 flex flex-wrap gap-2">
               <button
                 onClick={() => {
                   setCurrentView('spaces');
                   setMobileMenuOpen(false);
                 }}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-700"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800"
               >
                 {t.navSpaces}
               </button>
@@ -840,7 +975,7 @@ export function App() {
                   setCurrentView('map');
                   setMobileMenuOpen(false);
                 }}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-700"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800"
               >
                 {t.navMap}
               </button>
@@ -849,16 +984,16 @@ export function App() {
                   setCurrentView('cabinet');
                   setMobileMenuOpen(false);
                 }}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-700"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800"
               >
                 {t.navCabinet}
               </button>
               <button
                 onClick={() => {
-                  setCurrentView('admin');
                   setMobileMenuOpen(false);
+                  attemptAdminAccess();
                 }}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-700 text-brand-600"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-brand-600"
               >
                 {t.navAdmin}
               </button>
@@ -868,19 +1003,22 @@ export function App() {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col">
         {currentView === 'spaces' && (
           <SpacesHeroView
             lang={lang}
             spaceList={spaceList}
             spacesData={spacesData}
             currentSpaceKey={currentSpaceKey}
+            carouselIndex={carouselIndex}
+            isFavorite={isFavorite}
             onPrevSpace={prevSpace}
             onNextSpace={nextSpace}
             onSelectSpace={selectSpace}
             onOpenSpaceFullPage={openSpaceFullPage}
             onOpenMap={() => setCurrentView('map')}
             onOpenPhotoSearch={() => setPhotoSearchModalOpen(true)}
+            onToggleFavorite={toggleFavorite}
           />
         )}
 
@@ -900,6 +1038,7 @@ export function App() {
             selectedPoi={selectedPoi}
             isEmbed={isEmbedRoute}
             isFavorite={isFavorite}
+            onBackToSpaces={() => setCurrentView('spaces')}
             onChangeBuilding={(b) => {
               setActiveBuilding(b);
               setActiveFloor(1);
@@ -936,11 +1075,17 @@ export function App() {
 
         {currentView === 'cabinet' && (
           <CabinetView
+            lang={lang}
             user={user}
             currentSpace={currentSpace}
+            spacesData={spacesData}
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
-            onSelectPoiOnMap={(poi) => {
+            onSelectSpaceOnMap={selectSpace}
+            onSelectPoiOnMap={(poi, spaceKey) => {
+              if (spaceKey) {
+                setCurrentSpaceKey(spaceKey);
+              }
               setSelectedPoi(poi);
               setActiveBuilding(poi.building);
               setActiveFloor(poi.floor);
@@ -959,7 +1104,7 @@ export function App() {
               setCurrentView('spaces');
               showNotification(lang === 'ru' ? 'Вы вышли из системы' : 'Logged out');
             }}
-            onOpenAdminEditor={() => setCurrentView('admin')}
+            onOpenAdminEditor={attemptAdminAccess}
           />
         )}
 
@@ -984,15 +1129,56 @@ export function App() {
         )}
       </main>
 
+      {/* MODAL: ADMIN PASSWORD PROMPT */}
+      {adminPasswordModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-6 space-y-5 border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">{t.adminAuthPromptTitle}</h3>
+              <button
+                onClick={() => setAdminPasswordModalOpen(false)}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"
+              >
+                <Icon name="x" className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">{t.adminAuthPromptDesc}</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                  {t.adminPasswordLabel}
+                </label>
+                <input
+                  type="password"
+                  value={adminPasswordInput}
+                  onChange={(e) => setAdminPasswordInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') verifyAdminPassword();
+                  }}
+                  placeholder="admin2026"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm"
+                />
+              </div>
+              <button
+                onClick={verifyAdminPassword}
+                className="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-3 rounded-xl transition shadow-md text-xs"
+              >
+                {t.adminLoginBtn}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL: NATIVE PHOTO SEARCH ACCESS */}
       {photoSearchModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl p-6 space-y-6 animate-modal-enter">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl p-6 space-y-6 border border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-bold">Поиск объекта по фото</h3>
               <button
                 onClick={() => setPhotoSearchModalOpen(false)}
-                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full"
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"
               >
                 <Icon name="x" className="w-5 h-5" />
               </button>
@@ -1008,13 +1194,10 @@ export function App() {
 
             <div
               onClick={() => photoFileInputRef.current?.click()}
-              className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-2xl p-8 text-center cursor-pointer hover:border-brand-600 transition bg-slate-50 dark:bg-slate-900"
+              className="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-8 text-center cursor-pointer hover:border-brand-600 transition bg-slate-50 dark:bg-slate-950"
             >
               <Icon name="camera" className="w-10 h-10 mx-auto text-brand-600 mb-2" />
               <p className="text-sm font-semibold">Загрузите фото или сделайте снимок с камеры</p>
-              <p className="text-xs text-slate-400 mt-1">
-                Разрешите доступ к галерее вашего ПК или мобильного устройства
-              </p>
             </div>
           </div>
         </div>
@@ -1055,10 +1238,40 @@ export function App() {
 
       {/* Toast Notification Box */}
       {notificationOpen && (
-        <div className="fixed bottom-4 sm:bottom-6 right-4 sm:right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 border border-slate-800 text-xs font-medium animate-toast-enter">
+        <div className="fixed bottom-16 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 border border-slate-800 text-xs font-medium animate-bounce">
           <Icon name="bell" className="w-4 h-4 text-brand-500 shrink-0" />
           <span>{notificationText}</span>
         </div>
+      )}
+
+      {/* Footer (hidden in compact /embed/:slug mode) */}
+      {!isEmbedRoute && (
+        <footer className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 py-4 px-4 sm:px-8 text-xs text-slate-500 dark:text-slate-400">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
+            <div>{t.footerCopy}</div>
+
+            <div className="text-slate-600 dark:text-slate-300 font-medium">
+              Сервис навигации внутри зданий и мероприятий.
+            </div>
+
+            <div className="flex items-center space-x-6 justify-center">
+              <a
+                href="#privacy"
+                onClick={(e) => e.preventDefault()}
+                className="hover:text-brand-600 transition"
+              >
+                {t.privacyApi}
+              </a>
+              <a
+                href="#terms"
+                onClick={(e) => e.preventDefault()}
+                className="hover:text-brand-600 transition"
+              >
+                {t.termsLink}
+              </a>
+            </div>
+          </div>
+        </footer>
       )}
     </div>
   );
