@@ -1,8 +1,18 @@
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { AssetRef, Hotspot, Panorama, Poi } from '../../../../CONTRACTS/types';
-import { normalizeYaw } from '../../shared/coordinates';
 import { Icon } from '../../shared/Icon';
 import type { RichPoiItem } from '../../shared/spacesData';
+import {
+  buildViewerHotspots,
+  clampHfov,
+  clampHotspotAngles,
+  pitchBounds,
+  type HotspotActivation,
+  type PannellumHotspotConfig,
+} from './hotspots';
+import { PannellumViewport, type PanoramaViewModel } from './PannellumViewport';
+import { VARIANT_LABELS, readViewportBudget, resolvePanoramaImage } from './media';
+import type { PannellumViewerLike } from './pannellumLoader';
 
 export interface PanoramaViewerProps {
   isOpen: boolean;
@@ -23,6 +33,11 @@ export interface PanoramaViewerProps {
   initialYawDeg?: number;
 }
 
+function formatAngle(value: number): string {
+  const rounded = Math.round(value);
+  return `${rounded}°`;
+}
+
 export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
   isOpen,
   onClose,
@@ -33,6 +48,7 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
   hotspots = [],
   pois = [],
   richPois = [],
+  assets = [],
   onSelectPanorama,
   onSelectPoi,
   editable = false,
@@ -40,107 +56,166 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
   onDeleteHotspot,
   initialYawDeg = 0,
 }: PanoramaViewerProps) => {
-  const [panoZoom, setPanoZoom] = useState(110);
-  const [rotationX, setRotationX] = useState(-initialYawDeg * 2);
-  const [rotationY, setRotationY] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [startX, setStartX] = useState(0);
-  const [startY, setStartY] = useState(0);
+  const [view, setView] = useState<PanoramaViewModel>({ yaw: initialYawDeg, pitch: 0, hfov: 100 });
+  const [viewer, setViewer] = useState<PannellumViewerLike | null>(null);
   const [activePoiCardId, setActivePoiCardId] = useState<string | null>(null);
   const [editorKind, setEditorKind] = useState<'poi' | 'transition'>('poi');
   const [editorTargetId, setEditorTargetId] = useState<string>('');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [forceFullQuality, setForceFullQuality] = useState(false);
 
-  if (!isOpen) return null;
+  const budget = useMemo(() => readViewportBudget(), []);
+  const media = useMemo(
+    () => resolvePanoramaImage(panorama, assets, imageUrl, budget),
+    [panorama, assets, imageUrl, budget],
+  );
+  const sphereUrl = forceFullQuality && media.highQualityUrl ? media.highQualityUrl : media.initialUrl;
+  const previewUrl = media.asset?.preview_url ?? null;
+  const bounds = useMemo(() => pitchBounds(media.asset), [media.asset]);
 
-  const currentHotspots = panorama ? hotspots.filter((h) => h.panorama_id === panorama.id) : [];
+  const currentHotspots = useMemo(
+    () => (panorama ? hotspots.filter((hotspot) => hotspot.panorama_id === panorama.id) : []),
+    [hotspots, panorama],
+  );
 
-  const handleDragStart = (clientX: number, clientY: number) => {
-    setIsDragging(true);
-    setStartX(clientX - rotationX);
-    setStartY(clientY - rotationY);
-  };
+  const handleActivate = useCallback(
+    (activation: HotspotActivation) => {
+      if (activation.kind === 'poi') {
+        setActivePoiCardId(activation.poiId);
+        onSelectPoi?.(activation.poiId);
+        return;
+      }
+      if (activation.panoramaId === panorama?.id) return;
+      setActivePoiCardId(null);
+      onSelectPanorama?.(activation.panoramaId);
+    },
+    [onSelectPanorama, onSelectPoi, panorama?.id],
+  );
 
-  const handleDragMove = (clientX: number, clientY: number) => {
-    if (!isDragging) return;
-    setRotationX(clientX - startX);
-    setRotationY(Math.max(-150, Math.min(150, clientY - startY)));
-  };
+  const viewerHotspots: PannellumHotspotConfig[] = useMemo(
+    () =>
+      buildViewerHotspots({
+        panorama,
+        hotspots,
+        pois,
+        panoramas,
+        onActivate: handleActivate,
+      }),
+    [panorama, hotspots, pois, panoramas, handleActivate],
+  );
 
-  const handleDragEnd = () => {
-    setIsDragging(false);
-  };
+  const handlePickPoint = useCallback(
+    ({ yaw, pitch }: { yaw: number; pitch: number }) => {
+      if (!editable || !panorama || !onAddHotspot) return;
+      const angles = clampHotspotAngles(yaw, pitch);
 
-  const zoomIn = () => setPanoZoom((z) => Math.min(z + 25, 225));
-  const zoomOut = () => setPanoZoom((z) => Math.max(z - 25, 75));
+      if (editorKind === 'poi') {
+        const targetPoiId = editorTargetId || pois[0]?.id;
+        if (!targetPoiId) return;
+        onAddHotspot({
+          panorama_id: panorama.id,
+          kind: 'poi',
+          yaw_deg: angles.yaw,
+          pitch_deg: angles.pitch,
+          poi_id: targetPoiId,
+          target_panorama_id: null,
+        });
+        return;
+      }
 
-  const currentYaw = normalizeYaw(-rotationX / 2);
-
-  const handleViewportDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!editable || !panorama || !onAddHotspot) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const relX = (e.clientX - rect.left) / rect.width - 0.5;
-    const relY = 0.5 - (e.clientY - rect.top) / rect.height;
-    const yaw = normalizeYaw(currentYaw + relX * 120);
-    const pitch = Math.max(-85, Math.min(85, Math.round(relY * 90)));
-
-    if (editorKind === 'poi') {
-      const targetPoiId = editorTargetId || pois[0]?.id;
-      if (!targetPoiId) return;
-      onAddHotspot({
-        panorama_id: panorama.id,
-        kind: 'poi',
-        yaw_deg: Math.round(yaw * 10) / 10,
-        pitch_deg: pitch,
-        poi_id: targetPoiId,
-        target_panorama_id: null,
-      });
-    } else {
       const targetPano =
-        panoramas.find((p) => p.id === editorTargetId && p.id !== panorama.id) ||
-        panoramas.find((p) => p.id !== panorama.id);
+        panoramas.find((item) => item.id === editorTargetId && item.id !== panorama.id) ||
+        panoramas.find((item) => item.id !== panorama.id);
       if (!targetPano) return;
       onAddHotspot({
         panorama_id: panorama.id,
         kind: 'transition',
-        yaw_deg: Math.round(yaw * 10) / 10,
-        pitch_deg: pitch,
+        yaw_deg: angles.yaw,
+        pitch_deg: angles.pitch,
         poi_id: null,
         target_panorama_id: targetPano.id,
       });
-    }
-  };
+    },
+    [editable, panorama, onAddHotspot, editorKind, editorTargetId, pois, panoramas],
+  );
 
-  const activePoi = activePoiCardId ? pois.find((p) => p.id === activePoiCardId) : null;
-  const activeRichPoi = activePoiCardId ? richPois.find((p) => p.id === activePoiCardId) : null;
+  const zoomBy = useCallback(
+    (delta: number) => {
+      if (viewer) {
+        const next = clampHfov(viewer.getHfov() + delta);
+        viewer.setHfov(next, 300);
+        setView((prev) => ({ ...prev, hfov: next }));
+        return;
+      }
+      setView((prev) => ({ ...prev, hfov: clampHfov(prev.hfov + delta) }));
+    },
+    [viewer],
+  );
+
+  const recenter = useCallback(() => {
+    if (!viewer) return;
+    viewer.lookAt(0, 0, 100, 600);
+    viewer.setHfov(100, 400);
+  }, [viewer]);
+
+  if (!isOpen) return null;
+
+  const activePoi = activePoiCardId ? pois.find((poi) => poi.id === activePoiCardId) : null;
+  const activeRichPoi = activePoiCardId ? richPois.find((poi) => poi.id === activePoiCardId) : null;
+  const transitionTargets = panoramas.filter((item) => item.id !== panorama?.id);
+  const canEdit = editable && Boolean(panorama);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4">
       <div className="bg-slate-900 rounded-2xl sm:rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl border border-slate-800 flex flex-col h-[82vh] max-h-[640px] relative animate-modal-enter">
         {/* Header */}
-        <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between text-white z-10">
-          <div className="flex items-center gap-3">
-            <Icon name="rotate-3d" className="w-5 h-5 text-brand-500" />
-            <div>
-              <h3 className="font-bold text-base">{title || 'Панорама 360°'}</h3>
-              <p className="text-[11px] text-slate-400">
-                Азимут: {Math.round(currentYaw)}° • Масштаб: {panoZoom}% • Перетаскивайте мышью или пальцем для обзора 360°
+        <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between text-white z-10 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <Icon name="rotate-3d" className="w-5 h-5 text-brand-500 shrink-0" />
+            <div className="min-w-0">
+              <h3 className="font-bold text-base truncate">{title || panorama?.title || 'Панорама 360°'}</h3>
+              <p className="text-[11px] text-slate-400 truncate" data-testid="pano-readout">
+                Азимут: {formatAngle(view.yaw)} • Наклон: {formatAngle(view.pitch)} • Угол обзора:{' '}
+                {Math.round(view.hfov)}° • {VARIANT_LABELS[forceFullQuality && media.highQualityUrl ? 'full' : media.plan.initial]}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
+            {media.highQualityUrl && (
+              <button
+                onClick={() => setForceFullQuality((prev) => !prev)}
+                className={`px-2.5 py-1.5 rounded-full text-[11px] font-bold transition ${
+                  forceFullQuality ? 'bg-brand-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                }`}
+                title="Переключить качество сферы"
+                aria-pressed={forceFullQuality}
+              >
+                HD
+              </button>
+            )}
             <button
-              onClick={zoomOut}
+              onClick={() => zoomBy(15)}
               className="p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-full transition"
               title="Отдалить"
+              aria-label="Отдалить"
             >
               <Icon name="zoom-out" className="w-4 h-4" />
             </button>
             <button
-              onClick={zoomIn}
+              onClick={() => zoomBy(-15)}
               className="p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-full transition"
               title="Приблизить"
+              aria-label="Приблизить"
             >
               <Icon name="zoom-in" className="w-4 h-4" />
+            </button>
+            <button
+              onClick={recenter}
+              className="p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-full transition"
+              title="Сбросить вид"
+              aria-label="Сбросить вид"
+            >
+              <Icon name="maximize-2" className="w-4 h-4" />
             </button>
             <button
               onClick={onClose}
@@ -152,14 +227,17 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
           </div>
         </div>
 
-        {/* Editable Hotspot Toolbar */}
-        {editable && panorama && (
-          <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center gap-3 text-xs text-slate-200 z-10">
-            <span className="font-semibold text-brand-500">Разметка хотспотов (двойной клик по панораме):</span>
+        {/* Editable hotspot toolbar */}
+        {canEdit && (
+          <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center gap-2 text-xs text-slate-200 z-10">
+            <span className="font-semibold text-brand-500">
+              Разметка хотспотов — двойной клик по панораме:
+            </span>
             <select
               value={editorKind}
-              onChange={(e) => setEditorKind(e.target.value as 'poi' | 'transition')}
+              onChange={(event) => setEditorKind(event.target.value as 'poi' | 'transition')}
               className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs"
+              aria-label="Тип хотспота"
             >
               <option value="poi">Инфо-точка (POI)</option>
               <option value="transition">Переход к панораме</option>
@@ -167,9 +245,11 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
             {editorKind === 'poi' ? (
               <select
                 value={editorTargetId}
-                onChange={(e) => setEditorTargetId(e.target.value)}
+                onChange={(event) => setEditorTargetId(event.target.value)}
                 className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs"
+                aria-label="Целевой POI"
               >
+                {pois.length === 0 && <option value="">Сначала добавьте POI на план</option>}
                 {pois.map((poi) => (
                   <option key={poi.id} value={poi.id}>
                     {poi.title}
@@ -179,108 +259,93 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
             ) : (
               <select
                 value={editorTargetId}
-                onChange={(e) => setEditorTargetId(e.target.value)}
+                onChange={(event) => setEditorTargetId(event.target.value)}
                 className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs"
+                aria-label="Целевая панорама"
               >
-                {panoramas
-                  .filter((p) => p.id !== panorama.id)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.title}
-                    </option>
-                  ))}
+                {transitionTargets.length === 0 && <option value="">Нет второй панорамы</option>}
+                {transitionTargets.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
               </select>
             )}
+            <span className="text-[11px] text-slate-400">
+              Добавлено хотспотов: {currentHotspots.length} • наклон ограничен{' '}
+              {Math.round(bounds.minPitch)}…{Math.round(bounds.maxPitch)}°
+            </span>
           </div>
         )}
 
-        {/* 360 Viewport */}
-        <div
-          className="flex-1 relative overflow-hidden pano-viewport"
-          onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
-          onMouseMove={(e) => handleDragMove(e.clientX, e.clientY)}
-          onMouseUp={handleDragEnd}
-          onMouseLeave={handleDragEnd}
-          onTouchStart={(e) => e.touches[0] && handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
-          onTouchMove={(e) => e.touches[0] && handleDragMove(e.touches[0].clientX, e.touches[0].clientY)}
-          onTouchEnd={handleDragEnd}
-          onDoubleClick={handleViewportDoubleClick}
-        >
-          <div
-            className="absolute inset-0 bg-cover bg-center transition-transform duration-75"
-            style={{
-              backgroundImage: `url(${imageUrl})`,
-              transform: `scale(${panoZoom / 100}) translate(${rotationX}px, ${rotationY}px)`,
-            }}
+        {/* 360 viewport */}
+        <div className="flex-1 relative overflow-hidden">
+          <PannellumViewport
+            imageUrl={sphereUrl}
+            previewUrl={previewUrl}
+            asset={media.asset}
+            hotspots={viewerHotspots}
+            initialYawDeg={initialYawDeg}
+            initialHfovDeg={100}
+            editable={canEdit}
+            onViewerReady={setViewer}
+            onViewChanged={setView}
+            onPickPoint={handlePickPoint}
+            onError={(error) => setLoadError(error.message)}
           />
 
-          {/* Interactive Hotspots Overlay */}
-          {currentHotspots.map((hs) => {
-            const deltaYaw = normalizeYaw(hs.yaw_deg - currentYaw);
-            const leftPct = 50 + (deltaYaw / 180) * 80;
-            const topPct = 50 - (hs.pitch_deg / 90) * 40 + rotationY / 10;
-            if (leftPct < 5 || leftPct > 95) return null;
+          {/* Hotspot list for editors: lets a hotspot be deleted without hunting it in the sphere */}
+          {canEdit && currentHotspots.length > 0 && onDeleteHotspot && (
+            <div className="absolute top-2 left-2 right-2 sm:right-auto sm:w-64 max-h-40 overflow-y-auto custom-scrollbar bg-slate-950/80 backdrop-blur-md rounded-xl border border-slate-700 p-2 space-y-1 z-20">
+              {currentHotspots.map((hotspot) => {
+                const label =
+                  hotspot.kind === 'poi'
+                    ? pois.find((poi) => poi.id === hotspot.poi_id)?.title || 'POI'
+                    : `Переход: ${panoramas.find((item) => item.id === hotspot.target_panorama_id)?.title || '—'}`;
+                return (
+                  <div key={hotspot.id} className="flex items-center justify-between gap-2 text-[11px] text-slate-200">
+                    <span className="truncate">
+                      {hotspot.kind === 'transition' ? '→ ' : '• '}
+                      {label} · {Math.round(hotspot.yaw_deg)}°
+                    </span>
+                    <button
+                      onClick={() => onDeleteHotspot(hotspot.id)}
+                      className="p-1 bg-red-600/90 hover:bg-red-500 text-white rounded-full shrink-0"
+                      title="Удалить хотспот"
+                      aria-label={`Удалить хотспот ${label}`}
+                    >
+                      <Icon name="x" className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-            const linkedPoi = hs.kind === 'poi' ? pois.find((p) => p.id === hs.poi_id) : null;
-            const linkedPano =
-              hs.kind === 'transition' ? panoramas.find((p) => p.id === hs.target_panorama_id) : null;
-            const label =
-              hs.kind === 'poi'
-                ? linkedPoi?.title || 'Точка интереса'
-                : `Переход: ${linkedPano?.title || 'Соседняя панорама'}`;
-
-            return (
-              <div
-                key={hs.id}
-                style={{ left: `${leftPct}%`, top: `${Math.max(12, Math.min(88, topPct))}%` }}
-                className="absolute -translate-x-1/2 -translate-y-1/2 z-20 flex items-center gap-1"
-              >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (hs.kind === 'poi' && hs.poi_id) {
-                      setActivePoiCardId(hs.poi_id);
-                      onSelectPoi?.(hs.poi_id);
-                    } else if (hs.kind === 'transition' && hs.target_panorama_id) {
-                      onSelectPanorama?.(hs.target_panorama_id);
-                    }
-                  }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-xl backdrop-blur-md flex items-center gap-1.5 transition hover:scale-105 ${
-                    hs.kind === 'transition'
-                      ? 'bg-brand-600/90 text-white border border-white/30'
-                      : 'bg-white/90 text-slate-900 border border-brand-600'
-                  }`}
-                >
-                  <Icon name={hs.kind === 'transition' ? 'arrow-right' : 'map-pin'} className="w-3.5 h-3.5" />
-                  <span>{label}</span>
-                </button>
-                {editable && onDeleteHotspot && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDeleteHotspot(hs.id);
-                    }}
-                    className="p-1 bg-red-600 text-white rounded-full shadow"
-                    title="Удалить хотспот"
-                  >
-                    <Icon name="x" className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-
-          {/* Active POI Info Card inside Panorama (reads current POI data, not a stale copy) */}
+          {/* POI card opened from a hotspot */}
           {(activePoi || activeRichPoi) && (
             <div className="absolute bottom-4 left-4 right-4 sm:right-auto sm:w-80 bg-slate-950/90 text-white p-4 rounded-2xl border border-slate-700 backdrop-blur-md z-30 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-sm">{activePoi?.title ?? activeRichPoi?.name}</span>
-                <button onClick={() => setActivePoiCardId(null)} className="text-slate-400 hover:text-white">
+                <button
+                  onClick={() => setActivePoiCardId(null)}
+                  className="text-slate-400 hover:text-white"
+                  aria-label="Закрыть карточку"
+                >
                   <Icon name="x" className="w-4 h-4" />
                 </button>
               </div>
               <p className="text-xs text-slate-300">{activePoi?.description ?? activeRichPoi?.description}</p>
+              {activePoi?.category_label && (
+                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-600/20 text-brand-500">
+                  {activePoi.category_label}
+                </span>
+              )}
             </div>
+          )}
+
+          {loadError && !activePoi && !activeRichPoi && (
+            <p className="absolute bottom-3 left-3 right-3 text-[11px] text-amber-300/90 z-30">{loadError}</p>
           )}
         </div>
       </div>
