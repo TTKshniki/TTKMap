@@ -1,126 +1,130 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import logging
-import shutil
-import subprocess
-import tempfile
-import time
 from pathlib import Path
+import signal
+import tempfile
+import threading
 from uuid import uuid4
 
 from backend.app.config import settings
 from backend.app.db import database, initialize_database, transaction
 from backend.app.modules.capture.service import claim_next_capture
-from backend.app.modules.media.storage import AssetStore, inspect_image_bytes
+from backend.app.modules.media.images import make_variants
+from backend.app.modules.media.storage import AssetStore
+from backend.worker.lease import Lease, utc_now
+from backend.worker.processes import LeaseLost, Runner, StitchError
+from backend.worker.stitching import StitchResult, stitch
 
 
-REQUIRED_TOOLS = ("pto_gen", "cpfind", "cpclean", "autooptimiser", "pano_modify", "nona", "enblend")
+ERROR_CODES = {"INPUT_EXPIRED", "NOT_ENOUGH_OVERLAP", "LOOP_NOT_CLOSED", "INSUFFICIENT_COVERAGE",
+               "QUALITY_REJECTED", "TIMEOUT", "WORKER_LOST", "TOOL_FAILED"}
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+def fail_capture(capture_id: str, token: str, error: StitchError) -> bool:
+    code = error.code if error.code in ERROR_CODES else "TOOL_FAILED"
+    with database() as db:
+        with transaction(db, immediate=True):
+            now = utc_now()
+            updated = db.execute(
+                "UPDATE captures SET state='failed',finished_at=?,error_code=?,error_message=?,"
+                "lease_token=NULL,lease_expires_at=NULL,updated_at=? "
+                "WHERE id=? AND state='running' AND lease_token=? AND julianday(lease_expires_at)>julianday(?)",
+                (now, code, str(error)[:500] or "Stitching failed", now, capture_id, token, now),
+            )
+            return updated.rowcount == 1
 
 
-def _fail_capture(capture_id: str, lease_token: str, progress: int, error_code: str, error_message: str) -> None:
-    now = _now()
-    with database() as connection:
-        with transaction(connection, immediate=True):
-            row = connection.execute("SELECT state,lease_token FROM captures WHERE id=?", (capture_id,)).fetchone()
-            if row is None or row["state"] != "running" or row["lease_token"] != lease_token:
-                return
-            connection.execute(
-                "UPDATE captures SET state='failed',progress=?,finished_at=?,result_asset_id=NULL,"
-                "error_code=?,error_message=?,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?",
-                (min(max(progress, 1), 99), now, error_code, error_message, now, capture_id),
+def commit_result(capture, lease: Lease, result: StitchResult, variants: dict[str, str], asset_id: str):
+    lease.check()
+    with database() as db:
+        with transaction(db, immediate=True):
+            lease.check()
+            now = utc_now()
+            row = db.execute(
+                "SELECT 1 FROM captures WHERE id=? AND map_id=? AND state='running' AND lease_token=? "
+                "AND julianday(lease_expires_at)>julianday(?)",
+                (capture["id"], capture["map_id"], lease.token, now),
+            ).fetchone()
+            if row is None:
+                raise LeaseLost("Lease expired or capture was cancelled before result commit")
+            db.execute(
+                "INSERT INTO assets(id,map_id,kind,source,width_px,height_px,projection,haov_deg,vaov_deg,"
+                "v_offset_deg,preview_key,mobile_key,full_key,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (asset_id, capture["map_id"], "panorama", "stitch", result.width, result.height,
+                 "equirectangular", 360, result.vaov_deg, result.v_offset_deg,
+                 variants["preview"], variants["mobile"], variants["full"], now),
+            )
+            db.execute(
+                "UPDATE captures SET state='succeeded',progress=100,result_asset_id=?,finished_at=?,"
+                "error_code=NULL,error_message=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?",
+                (asset_id, now, now, capture["id"]),
             )
 
 
-def process_one_capture() -> bool:
-    with database() as connection:
-        with transaction(connection, immediate=True):
-            claimed = claim_next_capture(connection)
-            if claimed is None:
+def process_one_capture(*, stop: threading.Event | None = None, lease_seconds: int = 120,
+                        heartbeat_seconds: float = 5, timeout_seconds: float = 900) -> bool:
+    if stop is not None and stop.is_set():
+        return False
+    with database() as db:
+        with transaction(db, immediate=True):
+            capture = claim_next_capture(db, lease_seconds)
+            if capture is None:
                 return False
-            capture_id = claimed["id"]
-            map_id = claimed["map_id"]
-            lease_token = claimed["lease_token"]
-            hfov = float(claimed["hfov_hint_deg"])
-            frames = connection.execute(
-                "SELECT frame_index,storage_key,sha256 FROM capture_frames WHERE capture_id=? ORDER BY frame_index ASC",
-                (capture_id,),
-            ).fetchall()
-
-    if len(frames) != 16:
-        _fail_capture(capture_id, lease_token, 10, "INPUT_EXPIRED", "Capture does not contain all 16 frame files")
-        return True
-
-    frame_paths: list[Path] = []
-    hashes: set[str] = set()
-    for frame in frames:
-        path = (settings.media_path / frame["storage_key"]).resolve()
-        if not path.is_file():
-            _fail_capture(capture_id, lease_token, 10, "INPUT_EXPIRED", f"Frame {frame['frame_index']} is missing on disk")
-            return True
-        frame_paths.append(path)
-        hashes.add(frame["sha256"])
-
-    if len(hashes) < 12:
-        _fail_capture(capture_id, lease_token, 15, "NOT_ENOUGH_OVERLAP", "Too many duplicate frames in capture sequence")
-        return True
-
-    missing_tools = [tool for tool in REQUIRED_TOOLS if shutil.which(tool) is None]
-    if missing_tools:
-        _fail_capture(
-            capture_id,
-            lease_token,
-            20,
-            "TOOL_FAILED",
-            f"Stitching tools unavailable ({', '.join(missing_tools)}); upload a ready 360° panorama or run worker container",
-        )
-        return True
-
+            frames = db.execute("SELECT frame_index,storage_key FROM capture_frames WHERE capture_id=? ORDER BY frame_index",
+                                (capture["id"],)).fetchall()
+    asset_id = str(uuid4())
+    written: list[Path] = []
+    committed = False
     try:
-        with tempfile.TemporaryDirectory(prefix=f"ttkmap-stitch-{capture_id}-") as tmp_dir:
-            work = Path(tmp_dir)
-            pto = work / "project.pto"
-            subprocess.run(["pto_gen", "-f", str(hfov), "-o", str(pto), *[str(p) for p in frame_paths]], check=True, timeout=60)
-            subprocess.run(["cpfind", "--multirow", "-o", str(pto), str(pto)], check=True, timeout=120)
-            subprocess.run(["cpclean", "-o", str(pto), str(pto)], check=True, timeout=60)
-            subprocess.run(["autooptimiser", "-a", "-m", "-l", "-s", "-o", str(pto), str(pto)], check=True, timeout=60)
-            subprocess.run(["pano_modify", "--projection=2", "--fov=360x180", "--canvas=4096x2048", "-o", str(pto), str(pto)], check=True, timeout=60)
-            subprocess.run(["nona", "-m", "TIFF_m", "-o", str(work / "remapped"), str(pto)], check=True, timeout=120)
-            remapped = sorted(work.glob("remapped*.tif"))
-            if not remapped:
-                _fail_capture(capture_id, lease_token, 75, "NOT_ENOUGH_OVERLAP", "No overlapping frames produced by nona")
-                return True
-            out_img = work / "stitched.png"
-            subprocess.run(["enblend", "-o", str(out_img), *[str(p) for p in remapped]], check=True, timeout=180)
-            raw_bytes = out_img.read_bytes()
-            _, width, height = inspect_image_bytes(raw_bytes, 40 * 1024 * 1024)
-            asset_id = str(uuid4())
-            store = AssetStore(settings.media_path)
-            preview_key, mobile_key, full_key, final_w, final_h = store.store_asset_variants(asset_id, raw_bytes, width, height)
-            now = _now()
-            with database() as connection:
-                with transaction(connection, immediate=True):
-                    row = connection.execute("SELECT state,lease_token FROM captures WHERE id=?", (capture_id,)).fetchone()
-                    if row is None or row["state"] != "running" or row["lease_token"] != lease_token:
-                        return True
-                    connection.execute(
-                        "INSERT INTO assets(id,map_id,kind,source,width_px,height_px,projection,haov_deg,vaov_deg,v_offset_deg,preview_key,mobile_key,full_key,created_at) "
-                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (asset_id, map_id, "panorama", "stitch", final_w, final_h, "equirectangular", 360, 180.0, 0.0, preview_key, mobile_key, full_key, now),
-                    )
-                    connection.execute(
-                        "UPDATE captures SET state='succeeded',progress=100,finished_at=?,result_asset_id=?,"
-                        "error_code=NULL,error_message=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?",
-                        (now, asset_id, now, capture_id),
-                    )
-    except subprocess.TimeoutExpired:
-        _fail_capture(capture_id, lease_token, 80, "TIMEOUT", "Panorama stitching timed out")
-    except Exception as exc:
-        _fail_capture(capture_id, lease_token, 80, "TOOL_FAILED", f"Stitching pipeline failed: {exc}")
+        with Lease(capture["id"], capture["lease_token"], seconds=lease_seconds,
+                   heartbeat_seconds=heartbeat_seconds, stop=stop, timeout_seconds=timeout_seconds) as lease:
+            paths = []
+            root = settings.media_path.resolve()
+            if [frame["frame_index"] for frame in frames] != list(range(16)):
+                raise StitchError("INPUT_EXPIRED", "All 16 frame slots are required")
+            for frame in frames:
+                path = (root / frame["storage_key"]).resolve()
+                if root not in path.parents or not path.is_file():
+                    raise StitchError("INPUT_EXPIRED", "Source frame is missing or outside media storage")
+                paths.append(path)
+            with tempfile.TemporaryDirectory(prefix="ttkmap-stitch-") as work:
+                result = stitch(paths, Path(work), float(capture["hfov_hint_deg"]),
+                                runner=Runner(lease.check, timeout_seconds), progress=lease.renew)
+                lease.renew(90)
+                variants, width, height = make_variants(result.image_path.read_bytes(), "panorama", partial_vaov_deg=result.vaov_deg)
+                if (width, height) != (result.width, result.height) or set(variants) != {"preview", "mobile", "full"}:
+                    raise StitchError("QUALITY_REJECTED", "Invalid panorama variants")
+                store = AssetStore(root)
+                keys = {}
+                for name, content in variants.items():
+                    lease.renew(95)
+                    key = f"{asset_id}/{name}.webp"
+                    written.append(store.write_atomic(key, content))
+                    keys[name] = key
+                commit_result(capture, lease, result, keys, asset_id)
+                committed = True
+                logging.info("Capture %s succeeded: vaov=%.2f offset=%.2f rms=%.2f inliers=%s",
+                             capture["id"], result.vaov_deg, result.v_offset_deg, result.quality.rms_px, result.quality.inliers)
+    except LeaseLost:
+        logging.info("Stopped capture %s after cancellation, lease loss or shutdown", capture["id"])
+    except StitchError as exc:
+        fail_capture(capture["id"], capture["lease_token"], exc)
+        logging.warning("Capture %s failed (%s): %s", capture["id"], exc.code, exc)
+    except Exception:
+        logging.exception("Capture %s failed unexpectedly", capture["id"])
+        fail_capture(capture["id"], capture["lease_token"], StitchError("TOOL_FAILED", "Stitching pipeline failed unexpectedly"))
+    finally:
+        if not committed:
+            for path in written:
+                if path.parent == settings.media_path.resolve() / asset_id:
+                    path.unlink(missing_ok=True)
+            directory = settings.media_path.resolve() / asset_id
+            if directory.is_dir():
+                try:
+                    directory.rmdir()
+                except OSError:
+                    pass
     return True
 
 
@@ -128,11 +132,17 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     initialize_database()
     settings.media_path.mkdir(parents=True, exist_ok=True)
-    logging.info("TTKMap worker started and polling durable capture queue.")
-    while True:
-        processed = process_one_capture()
-        if not processed:
-            time.sleep(2)
+    stop = threading.Event()
+    for name in ("SIGINT", "SIGTERM"):
+        signal.signal(getattr(signal, name), lambda signum, frame: stop.set())
+    logging.info("TTKMap worker started; polling durable capture queue")
+    while not stop.is_set():
+        try:
+            if not process_one_capture(stop=stop):
+                stop.wait(2)
+        except Exception:
+            logging.exception("Queue poll failed; retrying")
+            stop.wait(2)
 
 
 if __name__ == "__main__":
