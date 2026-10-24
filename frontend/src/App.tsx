@@ -7,6 +7,49 @@ import { PublicSpacePage } from "./features/visitor/PublicSpacePage";
 import { apiClient, ApiClientError } from "./shared/api";
 import { confirmNavigation, navigate } from "./shared/router";
 
+function HomeRoute() {
+  const [state, setState] = useState<"loading" | "anonymous" | "error">("loading");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let disposed = false;
+    void apiClient.session().then(
+      () => {
+        if (!disposed) navigate("/organize", true);
+      },
+      (reason) => {
+        if (disposed) return;
+        if (reason instanceof ApiClientError && reason.status === 401) {
+          setState("anonymous");
+          return;
+        }
+        setError("Не удалось связаться с сервером. Проверьте соединение и повторите попытку.");
+        setState("error");
+      },
+    );
+    return () => {
+      disposed = true;
+    };
+  }, []);
+  if (state === "anonymous") return <LoginPage />;
+  if (state === "error") {
+    return (
+      <main className="auth-screen auth-screen--single">
+        <section className="auth-form-wrap">
+          <a className="brand-lockup" href="/" aria-label="TTKMap">
+            <span>TTK</span><small>MAP</small>
+          </a>
+          <h1>Сервис временно недоступен</h1>
+          <p role="alert">{error}</p>
+          <button className="button button-primary" onClick={() => window.location.reload()}>
+            Повторить
+          </button>
+        </section>
+      </main>
+    );
+  }
+  return <main className="auth-screen auth-screen--single"><p role="status">Подключаем кабинет…</p></main>;
+}
+
 function OrganizerSession({ children }: { children: ReactNode }) {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
@@ -34,8 +77,10 @@ function OrganizerSession({ children }: { children: ReactNode }) {
   return (
     <>
       <header className="app-bar">
-        <a href="/organize">ТТК · Мои карты</a>
-        <button
+          <a className="app-brand" href="/organize" aria-label="TTKMap, мои карты">
+            <span>TTK</span><small>MAP</small><b>Мои карты</b>
+          </a>
+          <button className="button button-quiet"
           onClick={async () => {
             if (!confirmNavigation()) return;
             try {
@@ -61,19 +106,7 @@ export function App() {
       routes={[
         {
           pattern: "/",
-          component: () => (
-            <main className="workspace narrow">
-              <h1>Карта пространства</h1>
-              <p>
-                Создайте план, добавьте панорамы и поделитесь маршрутом с
-                посетителями.
-              </p>
-              <a className="button" href="/organize">
-                Открыть кабинет
-              </a>
-              <p>Для просмотра карты откройте ссылку организатора.</p>
-            </main>
-          ),
+          component: () => <HomeRoute />,
         },
         { pattern: "/login", component: () => <LoginPage /> },
         {

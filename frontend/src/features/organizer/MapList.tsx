@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { MapSummary } from "../../../../CONTRACTS/types";
 import { apiClient } from "../../shared/api";
 import { navigate } from "../../shared/router";
+import { Icon } from "../../shared/Icon";
 
 export function MapList() {
   const [maps, setMaps] = useState<MapSummary[]>([]);
@@ -25,11 +26,18 @@ export function MapList() {
     };
   }, []);
   return (
-    <main className="workspace">
-      <h1>Мои карты</h1>
-      {error && <p role="alert">{error}</p>}
+    <main className="workspace workspace-dashboard">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">ОРГАНИЗАТОРСКИЙ КАБИНЕТ</p>
+          <h1>Мои карты</h1>
+          <p>Управляйте пространствами и публикуйте готовые карты.</p>
+        </div>
+        <span className="heading-mark" aria-hidden="true">TTK</span>
+      </div>
+      {error && <p className="form-error" role="alert">{error}</p>}
       <form
-        className="toolbar"
+        className="toolbar map-create-form"
         onSubmit={async (e) => {
           e.preventDefault();
           if (busy) return;
@@ -80,19 +88,38 @@ export function MapList() {
             onChange={(e) => setHeight(Number(e.target.value))}
           />
         </label>
-        <button disabled={busy}>Создать карту</button>
+        <button className="button button-primary" disabled={busy}>{busy ? "Создаём…" : "Создать карту"}</button>
       </form>
-      <ul className="map-list">
+      <div className="section-heading"><h2>Пространства</h2><span>{maps.length} карт</span></div>
+      <ul className="map-list map-list--designed">
         {maps.map((map) => (
           <li key={map.id}>
-            <a href={`/organize/${map.id}`}>{map.title}</a>
-            <span>
-              {map.is_published ? "Опубликована" : "Черновик"} · v{map.revision}
-            </span>
+            <div className="map-row-main">
+              <span className="map-row-symbol"><Icon name="map" className="map-row-icon" /></span>
+              <div>
+                <a href={`/organize/${map.id}`}>{map.title}</a>
+                <small>Обновлена {new Date(map.updated_at).toLocaleDateString("ru-RU")}</small>
+              </div>
+            </div>
+            <div className="map-row-meta">
+              <span className={`status-tag ${map.is_published ? "status-tag--published" : ""}`}>
+                {map.is_published ? "Опубликована" : "Черновик"}
+              </span>
+              <span className="map-revision">v{map.revision}</span>
+              <a className="map-open-link" href={`/organize/${map.id}`} aria-label={`Открыть карту ${map.title}`}>
+                Открыть <span aria-hidden="true">↗</span>
+              </a>
+            </div>
           </li>
         ))}
       </ul>
-      {!maps.length && <p>Создайте первую карту, чтобы начать разметку.</p>}
+      {!maps.length && (
+        <div className="empty-state">
+          <span className="empty-state-mark">01</span>
+          <h3>Пока нет карт</h3>
+          <p>Создайте пространство, чтобы начать разметку плана и настройку маршрутов.</p>
+        </div>
+      )}
     </main>
   );
 }
