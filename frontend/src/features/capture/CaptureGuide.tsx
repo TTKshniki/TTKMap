@@ -4,23 +4,13 @@ import { ApiClientError, apiClient } from '../../shared/api';
 import { Icon } from '../../shared/Icon';
 import { CapturePointPicker } from './CapturePointPicker';
 import {
-  CAPTURE_PHASE_LABELS,
-  STEP_DEG,
-  TOTAL_FRAMES,
-  canRetry,
-  captureErrorHint,
-  captureStateLabel,
-  compassGuidance,
-  detectCameraSupport,
-  detectOrientationSupport,
-  nextFrameIndex,
-  shootingProgress,
-  targetAngleFor,
-  type CapturePhase,
-  type CompassGuidance,
+  CAPTURE_PHASE_LABELS, STEP_DEG, TOTAL_FRAMES, canRetry, captureErrorHint,
+  captureStateLabel, compassGuidance, detectOrientationSupport, nextFrameIndex,
+  shootingProgress, targetAngleFor, type CapturePhase,
 } from './guide';
 import { clearSession, loadSession, saveSession } from './session';
-import { missingFrameIndexes, uploadFramesSequentially } from './uploadQueue';
+import { useCaptureCamera } from './useCaptureCamera';
+import { useCaptureJob } from './useCaptureJob';
 import './capture.css';
 
 export interface CaptureGuideProps {
@@ -28,109 +18,78 @@ export interface CaptureGuideProps {
   isAuthenticated: boolean;
   onNotify: (msg: string) => void;
   onPanoramaAssetReady?: (asset: AssetRef, title: string, x: number, y: number) => void;
-  /** Optional plan data: enables tap-to-place coordinates instead of raw X/Y inputs. */
   mapDocument?: MapDocument | null;
   widthUnits?: number;
   heightUnits?: number;
-  /** Polling interval for the server job; shortened in tests. */
   pollMs?: number;
-  /** Injects frame encoding, so the component is testable without a canvas. */
+  /** Test seam for frame encoding, never a replacement for stored pending frames. */
   captureFrame?: (index: number) => Promise<File>;
 }
 
 type Notice = { text: string; tone: 'info' | 'warning' | 'error' } | null;
-
+type PendingFrame = { captureId: string; index: number; file: File; url: string };
 const DEFAULT_HFOV = 65;
 
-async function encodeFrameFromVideo(video: HTMLVideoElement | null, index: number): Promise<File> {
-  const canvas = document.createElement('canvas');
-  canvas.width = 600;
-  canvas.height = 800;
-  const context = canvas.getContext('2d');
-  if (context) {
-    if (video && video.readyState >= 2) {
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    } else {
-      context.fillStyle = '#0f172a';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-    }
-  }
-  const blob = await new Promise<Blob>((resolve) =>
-    canvas.toBlob((value) => resolve(value ?? new Blob([], { type: 'image/jpeg' })), 'image/jpeg', 0.9),
-  );
-  return new File([blob], `capture-frame-${String(index).padStart(2, '0')}.jpg`, { type: 'image/jpeg' });
-}
+/** Changing the map or auth context disposes the old stream and pending requests. */
+export const CaptureGuide: React.FC<CaptureGuideProps> = (props) => (
+  <CaptureGuideSession key={`${props.mapId ?? 'none'}:${props.isAuthenticated}`} {...props} />
+);
 
-export const CaptureGuide: React.FC<CaptureGuideProps> = ({
-  mapId,
-  isAuthenticated,
-  onNotify,
-  onPanoramaAssetReady,
-  mapDocument = null,
-  widthUnits = 700,
-  heightUnits = 500,
-  pollMs = 2000,
-  captureFrame,
-}) => {
+function CaptureGuideSession({
+  mapId, isAuthenticated, onPanoramaAssetReady, mapDocument = null,
+  widthUnits = 700, heightUnits = 500, pollMs = 2000, captureFrame,
+}: CaptureGuideProps) {
   const [phase, setPhase] = useState<CapturePhase>('idle');
   const [title, setTitle] = useState('Панорама зала');
-  const [point, setPoint] = useState({ x: 350, y: 250 });
+  const [point, setPoint] = useState({ x: widthUnits / 2, y: heightUnits / 2 });
   const [activeCapture, setActiveCapture] = useState<Capture | null>(null);
+  const [pendingFrame, setPendingFrame] = useState<PendingFrame | null>(null);
+  const [uploadFailed, setUploadFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [headingDeg, setHeadingDeg] = useState<number | null>(null);
-  const [notice, setNotice] = useState<Notice>(null);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [pendingFrame, setPendingFrame] = useState<{ index: number; file: File; url: string } | null>(null);
-  const [pendingUploads, setPendingUploads] = useState<number[]>([]);
-  const [isUploadingPano, setIsUploadingPano] = useState(false);
   const [orientationGranted, setOrientationGranted] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [isUploadingPano, setIsUploadingPano] = useState(false);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const storedSession = useMemo(() => mapId && isAuthenticated ? loadSession(mapId) : null, [mapId, isAuthenticated]);
+  const [restoring, setRestoring] = useState(Boolean(storedSession));
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const camera = useCaptureCamera();
+  const cameraSupport = camera.support;
+  const cameraError = camera.error;
+  const orientationSupport = useMemo(() => detectOrientationSupport(), []);
+  const alive = useRef(true);
+  const busyRef = useRef(false);
   const readyPanoInputRef = useRef<HTMLInputElement | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
-  // Mirrors `activeCapture` so the async session restore can tell whether the
-  // organizer already started shooting while `getCapture` was still in flight.
-  const activeCaptureRef = useRef<Capture | null>(null);
-  const phaseRef = useRef<CapturePhase>('idle');
-
-  const cameraSupport = useMemo(() => detectCameraSupport(), []);
-  const orientationSupport = useMemo(() => detectOrientationSupport(), []);
-
   const frames = activeCapture?.frames ?? [];
   const nextIndex = nextFrameIndex(frames);
   const covered = frames.length;
-  const guide: CompassGuidance = compassGuidance(targetAngleFor(nextIndex), headingDeg);
+  const guide = compassGuidance(targetAngleFor(nextIndex), headingDeg);
   const progress = shootingProgress(frames);
 
-  activeCaptureRef.current = activeCapture;
-  phaseRef.current = phase;
-
   const pushNotice = useCallback((text: string, tone: 'info' | 'warning' | 'error' = 'info') => {
+    if (!alive.current) return;
     setNotice({ text, tone });
     if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
-    noticeTimerRef.current = window.setTimeout(() => setNotice(null), 5000);
-  }, []);
-
-  /* --------------------------- lifecycle --------------------------- */
-
-  const stopStream = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
+    if (tone !== 'error') noticeTimerRef.current = window.setTimeout(() => setNotice(null), 5000);
   }, []);
 
   useEffect(() => {
+    alive.current = true;
     return () => {
-      stopStream();
+      alive.current = false;
       if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
-      if (pendingFrame) URL.revokeObjectURL(pendingFrame.url);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Compass guidance for the 22.5° step.
   useEffect(() => {
-    if (typeof window === 'undefined' || !('DeviceOrientationEvent' in window)) return;
+    if (pendingFrame) return () => URL.revokeObjectURL(pendingFrame.url);
+  }, [pendingFrame]);
+
+  useEffect(() => {
+    if (!('DeviceOrientationEvent' in window)) return;
     const handler = (event: DeviceOrientationEvent) => {
       if (typeof event.alpha === 'number') setHeadingDeg(Math.round(event.alpha));
     };
@@ -138,297 +97,200 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
     return () => window.removeEventListener('deviceorientation', handler);
   }, []);
 
-  // Restore an unfinished session after a reload (phones love to reload tabs).
   useEffect(() => {
-    if (!mapId || !isAuthenticated) return;
-    const stored = loadSession(mapId);
-    if (!stored) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const restored = await apiClient.getCapture(mapId, stored.captureId);
-        if (cancelled) return;
-        // The organizer may have already opened the camera or created a fresh
-        // session while this request was in flight: never clobber that.
-        if (activeCaptureRef.current || phaseRef.current !== 'idle') return;
-        setActiveCapture(restored);
-        setTitle(restored.title);
-        setPoint({ x: restored.x, y: restored.y });
-        setPhase(restored.state === 'queued' || restored.state === 'running' ? 'queued' : 'idle');
-        if (restored.state === 'collecting') {
-          pushNotice(
-            `Сессия восстановлена: ${restored.frames.length}/${TOTAL_FRAMES} кадров уже загружено`,
-            'info',
-          );
-        }
-      } catch {
+    if (!mapId || !storedSession) return;
+    let disposed = false;
+    setRestoring(true);
+    setRestoreError(null);
+    void apiClient.getCapture(mapId, storedSession.captureId).then((restored) => {
+      if (disposed) return;
+      setActiveCapture(restored);
+      setTitle(restored.title);
+      setPoint({ x: restored.x, y: restored.y });
+      if (restored.state === 'queued' || restored.state === 'running') {
+        camera.stop();
+        setPhase('queued');
+      }
+      if (restored.state === 'collecting') {
+        pushNotice(`Сессия восстановлена: ${restored.frames.length}/${TOTAL_FRAMES} кадров уже загружено`);
+      }
+    }).catch((error: unknown) => {
+      if (disposed) return;
+      if (error instanceof ApiClientError && error.status === 404) {
+        clearSession(mapId);
+      } else {
+        setRestoreError('Не удалось восстановить съёмку. Проверьте связь и повторите попытку.');
+      }
+    }).finally(() => {
+      if (!disposed) setRestoring(false);
+    });
+    return () => { disposed = true; };
+  }, [mapId, storedSession, restoreAttempt, camera.stop, pushNotice]);
+
+  const job = useCaptureJob({
+    mapId, capture: activeCapture, pollMs,
+    onUpdate: (updated) => {
+      setActiveCapture(updated);
+      if (updated.state === 'failed' || updated.state === 'cancelled' || updated.state === 'succeeded') {
+        setPhase('idle');
+      }
+      if (updated.state === 'failed') pushNotice(captureErrorHint(updated.error_code), 'error');
+    },
+    onReady: (asset, capture) => {
+      onPanoramaAssetReady?.(asset, capture.title, capture.x, capture.y);
+      setPhase('idle');
+      pushNotice('Панорама готова. Сохраните карту после добавления в редактор.');
+    },
+  });
+
+  // One user mutation at a time, including the await before React re-renders.
+  async function runAction(operation: () => Promise<void>) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await operation();
+    } catch (error) {
+      if (alive.current) pushNotice(error instanceof Error ? error.message : 'Не удалось выполнить действие. Повторите попытку.', 'error');
+    } finally {
+      if (alive.current) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function requestOrientationPermission() {
+    try {
+      const orientation = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> };
+      const result = orientationSupport === 'permission-needed' ? await orientation.requestPermission!() : 'granted';
+      if (alive.current) setOrientationGranted(result === 'granted');
+    } catch {
+      if (alive.current) setOrientationGranted(false);
+    }
+  }
+
+  function startCamera() {
+    if (!mapId || !isAuthenticated || busyRef.current || restoring || restoreError || job.awaitingResult
+        || activeCapture?.state === 'queued' || activeCapture?.state === 'running') return;
+    // iOS requires requesting sensor permission directly from the click gesture.
+    void requestOrientationPermission();
+    void runAction(async () => {
+      if (activeCapture && activeCapture.state !== 'collecting') {
+        setActiveCapture(null);
         clearSession(mapId);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [mapId, isAuthenticated, pushNotice]);
-
-  // Poll the server job and hand the finished sphere to the plan editor.
-  useEffect(() => {
-    if (!mapId || !activeCapture) return;
-    if (activeCapture.state !== 'queued' && activeCapture.state !== 'running') return;
-
-    const timer = window.setInterval(async () => {
-      try {
-        const updated = await apiClient.getCapture(mapId, activeCapture.id);
-        setActiveCapture(updated);
-        if (updated.state === 'succeeded' && updated.result_asset_id) {
-          setPhase('idle');
-          clearSession(mapId);
-          pushNotice('Склейка завершена: панорама привязана к точке на плане', 'info');
-          const assets = await apiClient.listAssets(mapId);
-          const asset = assets.find((item) => item.id === updated.result_asset_id);
-          if (asset) onPanoramaAssetReady?.(asset, updated.title, updated.x, updated.y);
-        } else if (updated.state === 'failed') {
-          setPhase('idle');
-          pushNotice(captureErrorHint(updated.error_code), 'error');
-        }
-      } catch {
-        // Transient network error: keep polling the durable queue.
-      }
-    }, pollMs);
-
-    return () => window.clearInterval(timer);
-  }, [mapId, activeCapture, pollMs, onPanoramaAssetReady, pushNotice]);
-
-  /* --------------------------- camera --------------------------- */
-
-  const requestOrientationPermission = useCallback(async () => {
-    if (orientationSupport !== 'permission-needed') {
-      setOrientationGranted(true);
-      return;
-    }
-    try {
-      const request = (
-        window.DeviceOrientationEvent as unknown as { requestPermission: () => Promise<string> }
-      ).requestPermission;
-      const result = await request();
-      setOrientationGranted(result === 'granted');
-      if (result !== 'granted') pushNotice('Компас отключён: ориентируйтесь на счётчик шага', 'warning');
-    } catch {
-      setOrientationGranted(false);
-    }
-  }, [orientationSupport, pushNotice]);
-
-  const startCamera = useCallback(async () => {
-    if (!cameraSupport.usable) {
-      setCameraError(cameraSupport.reason);
-      return;
-    }
-    setCameraError(null);
-    setPhase('preparing');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1440 }, height: { ideal: 1920 } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
-      await requestOrientationPermission();
-      setPhase('capturing');
-      pushNotice('Держите телефон вертикально и поворачивайтесь на 22,5° после каждого кадра', 'info');
-    } catch {
-      setPhase('idle');
-      setCameraError(
-        'Доступ к камере отклонён. Разрешите камеру в настройках браузера или загрузите готовую сферу 2:1.',
-      );
-    }
-  }, [cameraSupport, pushNotice, requestOrientationPermission]);
-
-  const ensureCapture = useCallback(async (): Promise<Capture | null> => {
-    if (!mapId || !isAuthenticated) return null;
-    if (activeCapture && activeCapture.state === 'collecting') return activeCapture;
-    try {
-      const created = await apiClient.createCapture(mapId, {
-        title: title.trim() || 'Панорама 360°',
-        x: point.x,
-        y: point.y,
-        hfov_hint_deg: DEFAULT_HFOV,
-      });
-      setActiveCapture(created);
-      saveSession(mapId, { captureId: created.id, mapId, title: created.title, x: created.x, y: created.y });
-      return created;
-    } catch (error) {
-      if (error instanceof ApiClientError && error.status === 409) {
-        pushNotice('На этой карте уже две активные сессии съёмки: завершите или отмените одну', 'warning');
-      } else if (error instanceof ApiClientError) {
-        pushNotice(error.message, 'error');
-      } else {
-        pushNotice('Не удалось создать сессию съёмки', 'error');
-      }
-      return null;
-    }
-  }, [activeCapture, isAuthenticated, mapId, point.x, point.y, pushNotice, title]);
-
-  const shootFrame = useCallback(async () => {
-    const index = nextFrameIndex(activeCapture?.frames ?? []);
-    if (index >= TOTAL_FRAMES) return;
-    const capture = activeCapture ?? (await ensureCapture());
-    if (!capture) return;
-    try {
-      const encoder = captureFrame ?? ((value: number) => encodeFrameFromVideo(videoRef.current, value));
-      const file = await encoder(index);
-      setPendingFrame({ index, file, url: URL.createObjectURL(file) });
-      setPhase('reviewing');
-    } catch {
-      pushNotice('Не удалось снять кадр: попробуйте ещё раз', 'error');
-    }
-  }, [activeCapture, captureFrame, ensureCapture, pushNotice]);
-
-  const retakeFrame = useCallback(() => {
-    if (pendingFrame) URL.revokeObjectURL(pendingFrame.url);
-    setPendingFrame(null);
-    setPhase('capturing');
-    pushNotice('Кадр отменён: снимите его заново с тем же ориентиром', 'info');
-  }, [pendingFrame, pushNotice]);
-
-  const uploadFrame = useCallback(
-    async (frame: { index: number; file: File }) => {
-      const capture = activeCapture;
-      if (!mapId || !capture) return;
-      setPhase('uploading');
-      setPendingUploads([frame.index]);
-      try {
-        const updated = await apiClient.uploadCaptureFrame(mapId, capture.id, frame.index, { file: frame.file });
-        setActiveCapture(updated);
-        setPendingUploads([]);
-        const remaining = TOTAL_FRAMES - updated.frames.length;
-        setPhase('capturing');
-        if (remaining > 0) {
-          pushNotice(
-            `Кадр ${updated.frames.length}/${TOTAL_FRAMES} сохранён · следующий ориентир ${targetAngleFor(
-              updated.frames.length,
-            ).toFixed(1)}°`,
-            'info',
-          );
-        } else {
-          await submitStitch(updated);
-        }
-      } catch (error) {
-        setPendingUploads([]);
-        setPhase('capturing');
-        pushNotice(
-          error instanceof ApiClientError ? error.message : 'Не удалось загрузить кадр: проверьте связь',
-          'error',
-        );
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeCapture, mapId, pushNotice],
-  );
-
-  const acceptFrame = useCallback(async () => {
-    if (!pendingFrame) return;
-    const frame = { index: pendingFrame.index, file: pendingFrame.file };
-    URL.revokeObjectURL(pendingFrame.url);
-    setPendingFrame(null);
-    await uploadFrame(frame);
-  }, [pendingFrame, uploadFrame]);
-
-  const submitStitch = useCallback(
-    async (capture: Capture) => {
-      if (!mapId) return;
-      try {
-        const queued = await apiClient.startStitch(mapId, capture.id);
-        setActiveCapture(queued);
-        setPhase('queued');
-        stopStream();
-        pushNotice('Все 16 кадров загружены: склейка запущена на сервере', 'info');
-      } catch (error) {
-        pushNotice(error instanceof ApiClientError ? error.message : 'Не удалось поставить склейку в очередь', 'error');
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mapId, pushNotice, stopStream],
-  );
-
-  /** Re-sends frames that never reached the server after a broken connection. */
-  const resumeUploads = useCallback(async () => {
-    if (!mapId || !activeCapture) return;
-    const missing = missingFrameIndexes(
-      activeCapture.frames.map((frame) => frame.index),
-      TOTAL_FRAMES,
-    );
-    if (missing.length === 0 || !captureFrame) {
-      pushNotice('Все кадры уже на сервере — можно запускать склейку', 'info');
-      return;
-    }
-    setPhase('uploading');
-    setPendingUploads(missing);
-    const result = await uploadFramesSequentially({
-      upload: async (index) => apiClient.uploadCaptureFrame(mapId, activeCapture.id, index, { file: await captureFrame(index) }),
-      indexes: missing,
-      onFrameUploaded: (index) => setPendingUploads((prev) => prev.filter((item) => item !== index)),
+      setPhase('preparing');
+      const started = await camera.start();
+      if (!alive.current) return;
+      setPhase(started ? 'capturing' : 'idle');
+      if (started) pushNotice('Держите телефон вертикально и поворачивайтесь на 22,5° после каждого кадра');
     });
-    setPendingUploads([]);
-    const refreshed = await apiClient.getCapture(mapId, activeCapture.id);
-    setActiveCapture(refreshed);
+  }
+
+  async function shootFrame() {
+    if (!mapId || !isAuthenticated || restoring || restoreError || pendingFrame) return;
+    await runAction(async () => {
+      const collecting = activeCapture?.state === 'collecting' ? activeCapture : null;
+      const index = nextFrameIndex(collecting?.frames ?? []);
+      if (index >= TOTAL_FRAMES) return;
+      const file = await (captureFrame ?? camera.capture)(index);
+      if (!alive.current) return;
+      const capture = collecting ?? await apiClient.createCapture(mapId, {
+        title: title.trim() || 'Панорама 360°', x: point.x, y: point.y, hfov_hint_deg: DEFAULT_HFOV,
+      });
+      // The request may finish after navigation. Keep the server session
+      // discoverable when this map is opened again, without updating the old UI.
+      saveSession(mapId, { captureId: capture.id, mapId, title: capture.title, x: capture.x, y: capture.y });
+      if (!alive.current) return;
+      setActiveCapture(capture);
+      setPendingFrame({ captureId: capture.id, index, file, url: URL.createObjectURL(file) });
+      setUploadFailed(false);
+      setPhase('reviewing');
+    });
+  }
+
+  function retakeFrame() {
+    if (busyRef.current) return;
+    setPendingFrame(null);
+    setUploadFailed(false);
     setPhase('capturing');
-    if (result.failedIndex !== null) {
-      pushNotice(`Кадр ${result.failedIndex + 1} не загрузился: повторите восстановление очереди`, 'error');
-    } else {
-      pushNotice('Очередь восстановлена', 'info');
-    }
-  }, [activeCapture, captureFrame, mapId, pushNotice]);
+    pushNotice('Кадр отменён: снимите его заново с тем же ориентиром');
+  }
 
-  const retryStitch = useCallback(async () => {
-    if (!mapId || !activeCapture) return;
-    try {
-      const retried = await apiClient.startStitch(mapId, activeCapture.id);
-      setActiveCapture(retried);
-      setPhase('queued');
-      pushNotice('Повторная склейка поставлена в очередь', 'info');
-    } catch (error) {
-      pushNotice(error instanceof ApiClientError ? error.message : 'Не удалось перезапустить склейку', 'error');
-    }
-  }, [activeCapture, mapId, pushNotice]);
+  async function submitStitch(capture: Capture) {
+    if (!mapId) return;
+    const queued = await apiClient.startStitch(mapId, capture.id);
+    if (!alive.current) return;
+    setActiveCapture(queued);
+    setPhase(queued.state === 'queued' || queued.state === 'running' ? 'queued' : 'idle');
+    camera.stop();
+    pushNotice('Все 16 кадров загружены: состояние склейки проверяется на сервере');
+  }
 
-  const cancelCapture = useCallback(async () => {
-    stopStream();
-    setPhase('idle');
-    if (!mapId || !activeCapture) return;
-    try {
-      const cancelled = await apiClient.cancelCapture(mapId, activeCapture.id);
-      setActiveCapture(cancelled);
-      clearSession(mapId);
-      pushNotice('Сессия съёмки отменена', 'info');
-    } catch (error) {
-      pushNotice(error instanceof ApiClientError ? error.message : 'Не удалось отменить съёмку', 'error');
-    }
-  }, [activeCapture, mapId, pushNotice, stopStream]);
-
-  const uploadReadyPanorama = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      event.target.value = '';
-      if (!file) return;
-      if (!mapId || !isAuthenticated) {
-        pushNotice('Войдите как организатор, чтобы загрузить панораму', 'warning');
-        return;
-      }
-      setIsUploadingPano(true);
+  async function acceptFrame() {
+    if (!mapId || !pendingFrame || activeCapture?.id !== pendingFrame.captureId) return;
+    await runAction(async () => {
+      setPhase('uploading');
+      let updated: Capture;
       try {
-        const asset = await apiClient.uploadAsset(mapId, { kind: 'panorama', file });
-        onPanoramaAssetReady?.(asset, title.trim() || file.name, point.x, point.y);
-        pushNotice('Готовая панорама 2:1 загружена и привязана к точке на плане', 'info');
+        updated = await apiClient.uploadCaptureFrame(mapId, pendingFrame.captureId, pendingFrame.index, { file: pendingFrame.file });
       } catch (error) {
-        pushNotice(
-          error instanceof ApiClientError ? `${error.message} (требуется пропорция 2:1)` : 'Ошибка загрузки панорамы',
-          'error',
-        );
-      } finally {
-        setIsUploadingPano(false);
+        if (alive.current) {
+          setUploadFailed(true);
+          setPhase('reviewing');
+        }
+        throw error;
       }
-    },
-    [isAuthenticated, mapId, onPanoramaAssetReady, point.x, point.y, pushNotice, title],
-  );
+      if (!alive.current) return;
+      setActiveCapture(updated);
+      setPendingFrame(null);
+      setUploadFailed(false);
+      setPhase('capturing');
+      if (updated.frames.length === TOTAL_FRAMES) {
+        await submitStitch(updated);
+      } else {
+        pushNotice(`Кадр ${updated.frames.length}/${TOTAL_FRAMES} сохранён · следующий ориентир ${targetAngleFor(nextFrameIndex(updated.frames)).toFixed(1)}°`);
+      }
+    });
+  }
+
+  async function cancelCapture() {
+    await runAction(async () => {
+      const cancelled = mapId && activeCapture
+        ? await apiClient.cancelCapture(mapId, activeCapture.id)
+        : null;
+      if (!alive.current) return;
+      camera.stop();
+      setPendingFrame(null);
+      setActiveCapture(cancelled);
+      setPhase('idle');
+      if (mapId) clearSession(mapId);
+      pushNotice('Сессия съёмки отменена');
+    });
+  }
+
+  async function uploadReadyPanorama(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!mapId || !isAuthenticated) {
+      pushNotice('Войдите как организатор, чтобы загрузить панораму', 'warning');
+      return;
+    }
+    if (isUploadingPano) return;
+    setIsUploadingPano(true);
+    try {
+      const asset = await apiClient.uploadAsset(mapId, { kind: 'panorama', file });
+      if (!alive.current) return;
+      onPanoramaAssetReady?.(asset, title.trim() || file.name, point.x, point.y);
+      pushNotice('Готовая панорама 2:1 добавлена в редактор. Сохраните карту.');
+    } catch (error) {
+      if (alive.current) pushNotice(error instanceof Error ? error.message : 'Ошибка загрузки панорамы', 'error');
+    } finally {
+      if (alive.current) setIsUploadingPano(false);
+    }
+  }
 
   /* --------------------------- render --------------------------- */
 
@@ -460,6 +322,7 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Название панорамы"
             aria-label="Название панорамы"
+            disabled={activeCapture?.state === 'collecting' || busy || restoring}
             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs"
           />
           <CapturePointPicker
@@ -467,7 +330,9 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
             heightUnits={heightUnits}
             document={mapDocument}
             value={point}
-            onChange={setPoint}
+            onChange={(next) => {
+              if (!busy && !restoring && activeCapture?.state !== 'collecting') setPoint(next);
+            }}
             existing={(mapDocument?.panoramas ?? []).map((panorama) => ({
               id: panorama.id,
               x: panorama.x,
@@ -489,9 +354,18 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
         </div>
       )}
 
+      {restoring && <p role="status">Восстанавливаем сессию съёмки…</p>}
+      {restoreError && (
+        <div role="alert" className="ttk-capture-guide__notice ttk-capture-guide__notice--error">
+          <p>{restoreError}</p>
+          <button type="button" onClick={() => setRestoreAttempt((value) => value + 1)}>Повторить восстановление</button>
+        </div>
+      )}
+
       {cameraError && (
         <div className="ttk-capture-guide__notice ttk-capture-guide__notice--warning" role="alert">
           {cameraError}
+          {phase === 'capturing' && <button type="button" disabled={busy} onClick={startCamera}>Открыть камеру снова</button>}
         </div>
       )}
 
@@ -505,11 +379,10 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
       {(phase === 'capturing' || phase === 'reviewing' || phase === 'preparing' || phase === 'uploading') && (
         <div className="space-y-2">
           <div className="ttk-capture-guide__stage">
-            {phase === 'reviewing' && pendingFrame ? (
-              <img src={pendingFrame.url} alt={`Кадр ${pendingFrame.index + 1}`} />
-            ) : (
-              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-            )}
+            <video ref={camera.bindVideo} autoPlay playsInline muted
+              onLoadedData={camera.updateReady} onCanPlay={camera.updateReady} onEmptied={camera.updateReady}
+              className="w-full h-full" />
+            {pendingFrame && <img src={pendingFrame.url} alt={`Кадр ${pendingFrame.index + 1}`} className="ttk-capture-guide__preview" />}
             <div className="ttk-capture-guide__reticle" />
             <span
               className={`ttk-capture-guide__compass ${guide.aligned ? 'is-aligned' : ''}`}
@@ -538,18 +411,20 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
             <span>{progress}%</span>
           </div>
 
-          {phase === 'reviewing' ? (
+          {pendingFrame ? (
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={acceptFrame}
+                disabled={busy}
                 className="flex-1 bg-brand-600 hover:bg-brand-700 text-white py-2.5 rounded-xl text-xs font-bold"
               >
-                Оставить кадр
+                {phase === 'uploading' ? 'Загрузка кадра…' : uploadFailed ? 'Повторить загрузку кадра' : 'Оставить кадр'}
               </button>
               <button
                 type="button"
                 onClick={retakeFrame}
+                disabled={busy}
                 className="flex-1 bg-slate-200 dark:bg-slate-700 py-2.5 rounded-xl text-xs font-bold"
               >
                 Переснять
@@ -560,7 +435,7 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
               <button
                 type="button"
                 onClick={() => void shootFrame()}
-                disabled={phase === 'uploading' || phase === 'preparing'}
+                disabled={busy || restoring || Boolean(restoreError) || nextIndex >= TOTAL_FRAMES || (!captureFrame && !camera.ready)}
                 className="flex-1 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white py-2.5 rounded-xl text-xs font-bold"
               >
                 {phase === 'uploading' ? 'Загрузка кадра…' : `Снять кадр ${nextIndex + 1}`}
@@ -568,6 +443,7 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
               <button
                 type="button"
                 onClick={() => void cancelCapture()}
+                disabled={busy}
                 className="px-3 py-2.5 bg-slate-200 dark:bg-slate-700 rounded-xl text-xs font-semibold"
               >
                 Отмена
@@ -578,11 +454,11 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
       )}
 
       {/* Start button */}
-      {(phase === 'idle' || phase === 'queued') && (
+      {phase === 'idle' && !jobActive && (
         <button
           type="button"
           onClick={() => void startCamera()}
-          disabled={!cameraSupport.usable}
+          disabled={!cameraSupport.usable || !isAuthenticated || !mapId || busy || restoring || Boolean(restoreError) || job.awaitingResult}
           className="w-full bg-[#121824] hover:bg-slate-800 disabled:opacity-50 text-white py-3 rounded-2xl text-xs font-bold transition flex items-center justify-center gap-2"
         >
           <Icon name="video" className="w-4 h-4" /> Активировать камеру
@@ -614,7 +490,8 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
                 {canRetry(activeCapture) && (
                   <button
                     type="button"
-                    onClick={() => void retryStitch()}
+                    onClick={() => void runAction(() => submitStitch(activeCapture))}
+                    disabled={busy}
                     className="px-3 py-1.5 bg-brand-600 text-white rounded-lg font-bold"
                   >
                     Повторить склейку (попытка {activeCapture.attempt + 1}/2)
@@ -631,18 +508,27 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
             </div>
           )}
 
-          {activeCapture.state === 'collecting' && covered < TOTAL_FRAMES && captureFrame && (
+          {activeCapture.state === 'collecting' && covered === TOTAL_FRAMES && (
             <button
               type="button"
-              onClick={() => void resumeUploads()}
+              onClick={() => void runAction(() => submitStitch(activeCapture))}
+              disabled={busy}
               className="w-full px-3 py-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg font-semibold"
             >
-              Восстановить очередь ({TOTAL_FRAMES - covered} кадров)
+              Запустить склейку
             </button>
           )}
 
-          {pendingUploads.length > 0 && (
-            <p className="text-[11px] text-slate-500">Загружаются кадры: {pendingUploads.join(', ')}</p>
+          {(jobActive || (activeCapture.state === 'collecting' && (phase === 'idle' || phase === 'reviewing'))) && (
+            <button type="button" disabled={busy} onClick={() => void cancelCapture()}>
+              {jobActive ? 'Отменить склейку' : 'Отменить съёмку'}
+            </button>
+          )}
+          {job.error && (
+            <div role="alert" className="ttk-capture-guide__notice ttk-capture-guide__notice--error">
+              <p>{job.error}</p>
+              {job.awaitingResult && <button type="button" onClick={job.retryResult}>Получить готовую панораму</button>}
+            </div>
           )}
         </div>
       )}
@@ -669,4 +555,4 @@ export const CaptureGuide: React.FC<CaptureGuideProps> = ({
       </div>
     </div>
   );
-};
+}

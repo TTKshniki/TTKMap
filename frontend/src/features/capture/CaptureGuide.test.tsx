@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import type { Capture } from '../../../../CONTRACTS/types';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import type { AssetRef, Capture } from '../../../../CONTRACTS/types';
 
 vi.mock('../../shared/Icon', () => ({ Icon: ({ name }: { name: string }) => <span data-icon={name} /> }));
 
@@ -84,6 +84,17 @@ const { apiClient } = await import('../../shared/api');
 const { clearSession } = await import('./session');
 
 const captureFrame = vi.fn(async (index: number) => new File([`frame-${index}`], `frame-${index}.jpg`, { type: 'image/jpeg' }));
+const stopTrack = vi.fn();
+const cameraTrack = Object.assign(new EventTarget(), { stop: stopTrack });
+const cameraStream = { getTracks: () => [cameraTrack], getVideoTracks: () => [cameraTrack] } as unknown as MediaStream;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+const resultAsset = { id: 'asset-1', kind: 'panorama' } as AssetRef;
 
 /** Waits until the camera is live and the next frame button is clickable. */
 async function awaitCapturing(index: number) {
@@ -154,9 +165,7 @@ function enableCamera() {
   Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
   Object.defineProperty(window.navigator, 'mediaDevices', {
     value: {
-      getUserMedia: vi.fn(async () => ({
-        getTracks: () => [{ stop: vi.fn() }],
-      })),
+      getUserMedia: vi.fn(async () => cameraStream),
     },
     configurable: true,
   });
@@ -182,6 +191,7 @@ describe('CaptureGuide', () => {
   afterEach(() => {
     clearSession('map-1');
     disableCamera();
+    vi.restoreAllMocks();
   });
 
   it('lets the organizer place the capture point on the plan instead of typing coordinates', () => {
@@ -190,8 +200,9 @@ describe('CaptureGuide', () => {
 
     expect(screen.getByTestId('capture-point-picker')).toBeInTheDocument();
     expect(screen.getByTestId('capture-point-coords')).toHaveTextContent('X 350.0 · Y 250.0');
-    fireEvent.click(screen.getByTestId('capture-point-picker'));
-    expect(screen.getByTestId('capture-point-coords')).not.toHaveTextContent('X 350.0 · Y 250.0');
+    vi.spyOn(screen.getByTestId('capture-point-picker'), 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 700, height: 500 } as DOMRect);
+    fireEvent.click(screen.getByTestId('capture-point-picker'), { clientX: 100, clientY: 200 });
+    expect(screen.getByTestId('capture-point-coords')).toHaveTextContent('X 100.0 · Y 200.0');
   });
 
   it('explains that HTTPS is required when the camera cannot start', () => {
@@ -273,7 +284,7 @@ describe('CaptureGuide', () => {
     expect(screen.getByTestId('capture-point-coords')).toHaveTextContent('X 12.0 · Y 34.0');
   });
 
-  it('keeps shooting when a slow session restore resolves mid-shoot', async () => {
+  it('waits for a slow restore before starting a competing capture session', async () => {
     seedSession(makeCapture({ frames: [frame(0), frame(1)] }));
     let resolveRestore: (value: Capture) => void = () => {};
     const slow = new Promise<Capture>((resolve) => {
@@ -282,15 +293,14 @@ describe('CaptureGuide', () => {
     (apiClient.getCapture as unknown as { mockReturnValueOnce: (value: Promise<Capture>) => void }).mockReturnValueOnce(slow);
 
     render(<CaptureGuide {...baseProps()} />);
+    expect(screen.getByRole('button', { name: /Активировать камеру/ })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Отмена' })).toBeInTheDocument());
-
-    resolveRestore(makeCapture({ frames: [frame(0), frame(1)] }));
-    await Promise.resolve();
-
-    // The late restore must not drop the running camera back to the idle screen.
-    expect(screen.getByRole('button', { name: 'Отмена' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Снять кадр 1/ })).toBeInTheDocument();
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+    await act(async () => resolveRestore(makeCapture({ frames: [frame(0), frame(1)] })));
+    await awaitRestore();
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    await awaitCapturing(3);
+    expect(apiClient.createCapture).not.toHaveBeenCalled();
   });
 
   it('drops a stored session that no longer exists on the server', async () => {
@@ -298,8 +308,8 @@ describe('CaptureGuide', () => {
       'ttkmap.capture.map-1',
       JSON.stringify({ captureId: 'gone', mapId: 'map-1', title: 'x', x: 0, y: 0, savedAt: new Date().toISOString() }),
     );
-    const { apiClient: api } = await import('../../shared/api');
-    (api.getCapture as unknown as { mockRejectedValueOnce: (e: Error) => void }).mockRejectedValueOnce(new Error('404'));
+    const { apiClient: api, ApiClientError } = await import('../../shared/api');
+    vi.mocked(api.getCapture).mockRejectedValueOnce(new ApiClientError(404, null));
 
     render(<CaptureGuide {...baseProps()} />);
 
@@ -349,8 +359,8 @@ describe('CaptureGuide', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Оставить кадр' }));
 
     expect(await screen.findByText('Кадр слишком большой')).toBeInTheDocument();
-    // The series is not lost: the next target is still frame 2.
-    expect(screen.getByRole('button', { name: /Снять кадр 2/ })).toBeInTheDocument();
+    expect(screen.getByAltText('Кадр 2')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Повторить загрузку кадра' })).toBeEnabled();
   });
 
   it('cancels the capture session and stops the camera', async () => {
@@ -387,5 +397,209 @@ describe('CaptureGuide', () => {
 
     await waitFor(() => expect(screen.getByText(/Войдите как организатор/)).toBeInTheDocument());
     expect(apiClient.uploadAsset).not.toHaveBeenCalled();
+  });
+
+  it('keeps the real video stream after both retake and acceptance of a frame', async () => {
+    const { container } = render(<CaptureGuide {...baseProps()} captureFrame={undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    const video = await waitFor(() => {
+      const element = container.querySelector('video');
+      expect(element?.srcObject).toBe(cameraStream);
+      return element!;
+    });
+    expect(screen.getByRole('button', { name: 'Снять кадр 1' })).toBeDisabled();
+    Object.defineProperties(video, {
+      readyState: { value: 2 }, videoWidth: { value: 1920 }, videoHeight: { value: 1080 },
+    });
+    fireEvent.loadedData(video);
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => callback(new Blob(['jpeg'], { type: 'image/jpeg' })));
+    await awaitCapturing(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 1' }));
+    await screen.findByAltText('Кадр 1');
+    expect(container.querySelector('video')).toBe(video);
+    fireEvent.click(screen.getByRole('button', { name: 'Переснять' }));
+    expect(video.srcObject).toBe(cameraStream);
+    fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 1' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Оставить кадр' }));
+    await awaitCapturing(2);
+    expect(container.querySelector('video')).toBe(video);
+    expect(video.srcObject).toBe(cameraStream);
+    expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 1600, 900);
+    expect(stopTrack).not.toHaveBeenCalled();
+  });
+
+  it('retries the same file and slot after a network failure without taking another photo', async () => {
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    apiState.uploadError = new Error('Сеть недоступна');
+    render(<CaptureGuide {...baseProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    await awaitCapturing(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 1' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Оставить кадр' }));
+    await screen.findByText('Сеть недоступна');
+    const firstUpload = vi.mocked(apiClient.uploadCaptureFrame).mock.calls[0];
+    expect(revoke).not.toHaveBeenCalled();
+    apiState.uploadError = null;
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить загрузку кадра' }));
+    await awaitCapturing(2);
+    expect(vi.mocked(apiClient.uploadCaptureFrame).mock.calls[1]).toEqual(firstUpload);
+    expect(captureFrame).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['cancelled', 'failed', 'succeeded'] as const)('starts a new session after %s instead of uploading into it', async (state) => {
+    seedSession(makeCapture({ state, frames: Array.from({ length: 16 }, (_, index) => frame(index)), result_asset_id: state === 'succeeded' ? 'asset-1' : null }));
+    if (state === 'succeeded') vi.mocked(apiClient.listAssets).mockResolvedValueOnce([resultAsset]);
+    const props = baseProps();
+    render(<CaptureGuide {...props} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /Активировать камеру/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    await awaitCapturing(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 1' }));
+    await screen.findByAltText('Кадр 1');
+    expect(apiClient.createCapture).toHaveBeenCalledTimes(1);
+    expect(captureFrame).toHaveBeenCalledWith(0);
+  });
+
+  it('allows a cancelled live session to be followed by a fresh series', async () => {
+    render(<CaptureGuide {...baseProps()} />);
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    await awaitCapturing(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 1' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Оставить кадр' }));
+    await awaitCapturing(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+    await screen.findByText('Съёмка отменена');
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    await awaitCapturing(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 1' }));
+    await screen.findByAltText('Кадр 1');
+    expect(apiClient.createCapture).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers a stitch retry after all frames were accepted but submit failed', async () => {
+    seedSession(makeCapture({ frames: Array.from({ length: 15 }, (_, index) => frame(index)) }));
+    vi.mocked(apiClient.startStitch).mockRejectedValueOnce(new Error('Ответ склейки потерян'));
+    render(<CaptureGuide {...baseProps()} />);
+    await awaitRestore();
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    await awaitCapturing(16);
+    fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 16' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Оставить кадр' }));
+    await screen.findByText('Ответ склейки потерян');
+    fireEvent.click(screen.getByRole('button', { name: 'Запустить склейку' }));
+    await screen.findByText('В очереди на склейку');
+    expect(apiClient.startStitch).toHaveBeenCalledTimes(2);
+    expect(apiClient.uploadCaptureFrame).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Отменить склейку' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Отменить склейку' }));
+    await screen.findByText('Съёмка отменена');
+  });
+
+  it('retains a session on a network restore error and retries the existing capture', async () => {
+    seedSession(makeCapture({ frames: [frame(0)] }));
+    vi.mocked(apiClient.getCapture).mockRejectedValueOnce(new Error('offline'));
+    render(<CaptureGuide {...baseProps()} />);
+    await screen.findByText(/Не удалось восстановить съёмку/);
+    expect(localStorage.getItem('ttkmap.capture.map-1')).not.toBeNull();
+    expect(screen.getByRole('button', { name: /Активировать камеру/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить восстановление' }));
+    await screen.findByText(/Сессия восстановлена: 1\/16/);
+    expect(apiClient.createCapture).not.toHaveBeenCalled();
+  });
+
+  it('imports a succeeded result after a failed asset request and delivers it once', async () => {
+    const succeeded = makeCapture({ state: 'succeeded', result_asset_id: 'asset-1' });
+    seedSession(succeeded);
+    vi.mocked(apiClient.listAssets).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([resultAsset]);
+    const props = baseProps();
+    const { rerender } = render(<CaptureGuide {...props} />);
+    await screen.findByText(/Панорама готова, но получить её не удалось/);
+    expect(localStorage.getItem('ttkmap.capture.map-1')).not.toBeNull();
+    expect(props.onPanoramaAssetReady).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Получить готовую панораму' }));
+    await waitFor(() => expect(props.onPanoramaAssetReady).toHaveBeenCalledTimes(1));
+    expect(props.onPanoramaAssetReady).toHaveBeenCalledWith(resultAsset, succeeded.title, succeeded.x, succeeded.y);
+    expect(localStorage.getItem('ttkmap.capture.map-1')).toBeNull();
+    rerender(<CaptureGuide {...props} onNotify={vi.fn()} />);
+    expect(props.onPanoramaAssetReady).toHaveBeenCalledTimes(1);
+  });
+
+  it('polls a queued job until success and delivers the result without duplicate imports', async () => {
+    seedSession(makeCapture({ state: 'queued' }));
+    vi.mocked(apiClient.listAssets).mockResolvedValueOnce([resultAsset]);
+    const props = baseProps();
+    render(<CaptureGuide {...props} />);
+    await screen.findByText('В очереди на склейку');
+    apiState.getCapture = makeCapture({ state: 'succeeded', result_asset_id: 'asset-1' });
+    await waitFor(() => expect(props.onPanoramaAssetReady).toHaveBeenCalledTimes(1));
+    expect(apiClient.listAssets).toHaveBeenCalledTimes(1);
+  });
+
+  it('disposes a late camera permission result when the map changes', async () => {
+    const permission = deferred<MediaStream>();
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockReturnValueOnce(permission.promise);
+    const props = baseProps();
+    const { rerender, container } = render(<CaptureGuide {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    rerender(<CaptureGuide {...props} mapId="map-2" widthUnits={100} heightUnits={80} />);
+    await act(async () => permission.resolve(cameraStream));
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('video')).toBeNull();
+    expect(screen.getByTestId('capture-point-coords')).toHaveTextContent('X 50.0 · Y 40.0');
+    expect(apiClient.createCapture).not.toHaveBeenCalled();
+  });
+
+  it('remembers a late capture creation for its original map without changing the new map', async () => {
+    const creation = deferred<Capture>();
+    vi.mocked(apiClient.createCapture).mockReturnValueOnce(creation.promise);
+    const props = baseProps();
+    const { rerender } = render(<CaptureGuide {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    await awaitCapturing(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 1' }));
+    await waitFor(() => expect(apiClient.createCapture).toHaveBeenCalledTimes(1));
+    rerender(<CaptureGuide {...props} mapId="map-2" />);
+    await act(async () => creation.resolve(makeCapture({ id: 'late-capture' })));
+    expect(JSON.parse(localStorage.getItem('ttkmap.capture.map-1')!).captureId).toBe('late-capture');
+    expect(localStorage.getItem('ttkmap.capture.map-2')).toBeNull();
+    expect(screen.queryByAltText('Кадр 1')).toBeNull();
+    expect(apiClient.uploadCaptureFrame).not.toHaveBeenCalled();
+  });
+
+  it('ignores an old map upload response and cleans up its preview', async () => {
+    const upload = deferred<Capture>();
+    vi.mocked(apiClient.uploadCaptureFrame).mockReturnValueOnce(upload.promise);
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    const props = baseProps();
+    const { rerender } = render(<CaptureGuide {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    await awaitCapturing(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 1' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Оставить кадр' }));
+    rerender(<CaptureGuide {...props} mapId="map-2" />);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    await act(async () => upload.resolve(makeCapture({ frames: Array.from({ length: 16 }, (_, i) => frame(i)) })));
+    expect(screen.queryByText(/Съёмка: 16\/16/)).toBeNull();
+    expect(apiClient.startStitch).not.toHaveBeenCalled();
+    expect(props.onPanoramaAssetReady).not.toHaveBeenCalled();
+  });
+
+  it('allows reopening an interrupted camera without losing the server session', async () => {
+    seedSession(makeCapture({ frames: [frame(0)] }));
+    render(<CaptureGuide {...baseProps()} />);
+    await awaitRestore();
+    fireEvent.click(screen.getByRole('button', { name: /Активировать камеру/ }));
+    await awaitCapturing(2);
+    act(() => cameraTrack.dispatchEvent(new Event('ended')));
+    expect(screen.getByText(/Камера остановилась/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть камеру снова' }));
+    await awaitCapturing(2);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(2);
+    expect(apiClient.createCapture).not.toHaveBeenCalled();
+    expect(localStorage.getItem('ttkmap.capture.map-1')).not.toBeNull();
   });
 });
