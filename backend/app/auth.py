@@ -17,19 +17,15 @@ from backend.app.db import database
 from backend.app.errors import ApiError
 
 
-try:
-    from argon2 import PasswordHasher
-    from argon2.exceptions import VerifyMismatchError
-except ImportError:  # pragma: no cover - dependencies are installed in the backend image
-    PasswordHasher = None
-    VerifyMismatchError = Exception
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 
-_FALLBACK_PREFIX = "$argon2id$v=19$m=65536,t=3,p=4$scrypt$"
 _LOGIN_WINDOW_SECONDS = 60.0
 _LOGIN_MAX_FAILURES = 5
 _login_failures: dict[str, list[float]] = defaultdict(list)
 _login_lock = threading.Lock()
-_dummy_password_hash = PasswordHasher().hash(secrets.token_urlsafe(32)) if PasswordHasher is not None else None
+_ph = PasswordHasher()
+_dummy_password_hash = _ph.hash(secrets.token_urlsafe(32))
 
 
 def clear_login_failures(client_ip: str | None = None, email: str | None = None) -> None:
@@ -79,30 +75,13 @@ def verify_login_password(password_hash: str | None, password: str) -> bool:
 
 
 def hash_password(password: str) -> str:
-    if PasswordHasher is not None:
-        return PasswordHasher().hash(password)
-    salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=16384, r=8, p=1, dklen=32)
-    salt_b64 = base64.RawStdEncoding.encode(salt).decode("ascii") if hasattr(base64, "RawStdEncoding") else base64.b64encode(salt).decode("ascii").rstrip("=")
-    digest_b64 = base64.b64encode(digest).decode("ascii").rstrip("=")
-    return f"{_FALLBACK_PREFIX}{salt_b64}${digest_b64}"
+    return _ph.hash(password)
 
 
 def verify_password(password_hash: str, password: str) -> bool:
-    if password_hash.startswith(_FALLBACK_PREFIX):
-        try:
-            rest = password_hash[len(_FALLBACK_PREFIX):]
-            salt_b64, digest_b64 = rest.split("$", 1)
-            salt = base64.b64decode(salt_b64 + "=" * (-len(salt_b64) % 4))
-            expected = base64.b64decode(digest_b64 + "=" * (-len(digest_b64) % 4))
-            actual = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=16384, r=8, p=1, dklen=32)
-            return secrets.compare_digest(actual, expected)
-        except Exception:
-            return False
-    if PasswordHasher is None:
-        return False
     try:
-        return PasswordHasher().verify(password_hash, password)
+        _ph.verify(password_hash, password)
+        return True
     except (VerifyMismatchError, ValueError):
         return False
 

@@ -37,6 +37,7 @@ def test_login_logout_csrf_origin_and_rate_limit(client: TestClient):
 
     # Missing/wrong origin -> 403
     assert client.post("/api/v1/auth/login", json={"email": "org1@example.test", "password": "valid-password-123"}).status_code == 403
+    assert client.post("/api/v1/auth/login", json={"email": "org1@example.test", "password": "valid-password-123"}, headers={"Origin": "http://evil.com"}).status_code == 403
 
     # Identical error on wrong email vs wrong password
     r1 = client.post("/api/v1/auth/login", json={"email": "unknown@example.test", "password": "valid-password-123"}, headers=origin)
@@ -50,6 +51,10 @@ def test_login_logout_csrf_origin_and_rate_limit(client: TestClient):
     login1 = client.post("/api/v1/auth/login", json={"email": "org1@example.test", "password": "valid-password-123"}, headers=origin)
     assert login1.status_code == 200
     csrf1 = login1.json()["csrf_token"]
+    session_data = login1.json()
+    assert "password" not in str(session_data)
+    assert "token" not in str(session_data) or "csrf_token" in str(session_data)
+
     map_res = client.post(
         "/api/v1/maps",
         json={"title": "Org1 Map", "description": "", "width_units": 500, "height_units": 500, "scale_m_per_unit": None, "max_walk_gap_units": 100},
@@ -61,6 +66,9 @@ def test_login_logout_csrf_origin_and_rate_limit(client: TestClient):
     # Missing CSRF -> 403
     assert client.post("/api/v1/auth/logout", headers=origin).status_code == 403
 
+    # Wrong CSRF -> 403
+    assert client.post("/api/v1/auth/logout", headers={**origin, "X-CSRF-Token": "wrong-token"}).status_code == 403
+
     # Login org2 -> cannot access org1's map (404)
     login2 = client.post("/api/v1/auth/login", json={"email": "org2@example.test", "password": "valid-password-456"}, headers=origin)
     assert login2.status_code == 200
@@ -71,7 +79,7 @@ def test_login_logout_csrf_origin_and_rate_limit(client: TestClient):
     assert client.post("/api/v1/auth/logout", headers={**origin, "X-CSRF-Token": csrf2}).status_code == 204
     assert client.get("/api/v1/auth/session").status_code == 401
 
-    # Rate limit after 5 failures
+    # Rate limit after 5 failures by email
     clear_login_failures()
     for _ in range(5):
         res = client.post("/api/v1/auth/login", json={"email": "org1@example.test", "password": "wrong-password-123"}, headers=origin)
@@ -79,3 +87,11 @@ def test_login_logout_csrf_origin_and_rate_limit(client: TestClient):
     blocked = client.post("/api/v1/auth/login", json={"email": "org1@example.test", "password": "valid-password-123"}, headers=origin)
     assert blocked.status_code == 429
     assert blocked.json()["error"]["code"] == "RATE_LIMITED"
+
+    # Rate limit by IP affects all accounts
+    clear_login_failures()
+    for _ in range(5):
+        res = client.post("/api/v1/auth/login", json={"email": "org1@example.test", "password": "wrong-password-123"}, headers=origin)
+        assert res.status_code == 401
+    blocked_other = client.post("/api/v1/auth/login", json={"email": "org2@example.test", "password": "valid-password-456"}, headers=origin)
+    assert blocked_other.status_code == 429
