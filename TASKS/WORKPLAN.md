@@ -1,177 +1,174 @@
-# TTKMap: план работ для 3 участников
+# TTKMap: план работ
 
-Основа (`ttk-foundation`) готова. Рабочие задачи MVP ниже распределены по трём независимым дорожкам. Начинайте задачу, когда завершены только перечисленные зависимости; задачи разных дорожек можно вести одновременно.
+> Генерируется из manifest.json: `python scripts/render_workplan.py`. Статусы исторических задач не заменяют приёмку кода.
 
-Перед изменениями прочитайте `CONTRACTS/AGENTS.md`. Работайте только в путях своей задачи. Ставьте задаче статус завершения только после merge PR в `main`; до этого она остаётся открытой. После merge отметьте её здесь и установите `state: complete` для того же ID в `manifest.json`. Контракт API уже зафиксирован; изменения OpenAPI/DTO требуют отдельной общей договорённости до параллельной работы.
+## ttk-foundation: Общая основа TTKMap
 
-GitHub Actions CI настроен в `.github/workflows/ci.yml`. Он запускает контрактную проверку, backend-тесты, frontend test/build, `git diff --check` и проверку `allowed_paths` по task ID в заголовке PR. Команды `verify_cmd` ниже остаются локальными проверками задачи: их запускает владелец и прикладывает результат к PR, а второй участник делает review по diff.
+- Статус: complete
+- Зависимости: нет
+- Область: `CONTRACTS/**`, `backend/app/config.py`, `backend/app/db.py`, `backend/app/errors.py`, `backend/app/schemas.py`, `backend/app/main.py`, `backend/app/auth.py`, `backend/app/cli.py`, `backend/app/routers/**`, `backend/app/modules/media/storage.py`, `backend/app/modules/README.md`, `backend/tests/conftest.py`, `backend/tests/test_core.py`, `backend/tests/test_contracts.py`, `frontend/package.json`, `frontend/tsconfig.json`, `frontend/vite.config.ts`, `frontend/index.html`, `frontend/scripts/**`, `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/shared/**`, `frontend/src/features/README.md`, `frontend/src/styles.css`, `compose.yaml`, `backend/Dockerfile`, `backend/worker/main.py`, `backend/worker/__init__.py`, `backend/worker/README.md`, `backend/requirements.txt`, `backend/pyproject.toml`, `scripts/check_contracts.py`, `.dockerignore`, `.env.example`, `.gitignore`, `AGENTS.md`, `README.md`, `CONTRACTS/AGENTS.md`, `TASKS/manifest.json`, `docs/demo.md`, `frontend/src/features/README.md`, `backend/app/modules/README.md`
+- Проверка: `docker compose --profile test run --rm backend-test python scripts/check_contracts.py`
 
-## Участник A: backend и маршрутизация
+Созданы контракт OpenAPI/TypeScript/SQLite, FastAPI app и SQLite adapter, строгие модели, cookie auth, базовый CRUD карты с транзакционным сохранением, публичный снимок, Dijkstra, React/Vite shell, общие координатные helpers, Compose и проверки контракта. Это стартовая точка для feature-агентов, а не завершённый MVP. Готово: contract/schema/task-graph check проходит; новые модули подключаются независимо.
 
-### A1. Закрепить backend-зависимости
+## ttk-backend-lock: Зафиксировать Python зависимости
 
-- [ ] `ttk-backend-lock`
-- Результат: hash-pinned `requirements.lock`, установка Docker-образа только из lock-файла.
-- Пути: `backend/Dockerfile`, `backend/requirements.lock`, `backend/requirements-lock-tool.txt`.
-- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests -q`.
+- Статус: open
+- Зависимости: ttk-foundation
+- Область: `backend/Dockerfile`, `backend/requirements.lock`, `backend/requirements-lock-tool.txt`
+- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests -q`
 
-### A2. Закрыть auth и ownership
+Создать полный hash-pinned requirements.lock через зафиксированную версию pip-tools на Python 3.12, сохранить прямые зависимости из requirements.txt, добавить необходимые платформенные markers и переключить Dockerfile на установку только из lock-файла. Проверить чистую сборку backend image и backend tests на Linux amd64/arm64; lock не должен содержать локальные пути или секреты.
 
-- [ ] `ttk-auth-hardening` (после A1)
-- Результат: завершённые login/session/logout и тесты анонимного доступа, CSRF/Origin, rate limit и доступа к чужой карте.
-- Пути: `backend/app/auth.py`, `backend/app/routers/auth.py`, `backend/tests/auth/**`.
-- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/auth -q`.
+## ttk-frontend-lock: Создать воспроизводимый npm lock-файл
 
-### A3. Завершить валидацию документа карты
+- Статус: open
+- Зависимости: ttk-foundation
+- Область: `frontend/package-lock.json`
+- Проверка: `npm --prefix frontend run test`
 
-- [ ] `ttk-map-validation` (после A2)
-- Результат: bounds, ID, геометрия, связи asset/POI/hotspot, publish gate и атомарный rollback проверены тестами.
-- Пути: `backend/app/routers/maps.py`, `backend/app/schemas.py`, `backend/tests/maps/**`.
-- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/maps -q`.
+Выполнить npm install для package.json на Node.js 22, создать package-lock.json lockfileVersion 3 и зафиксировать в нём дерево зависимостей. Проверить, что npm ci с нуля устанавливает проект на Linux/macOS/Windows и после установки проходит frontend unit tests. Не менять package.json или код приложения.
 
-### A4. Закрыть публичный снимок и маршруты
+## ttk-auth-hardening: Закрыть auth и ownership тестами
 
-- [ ] `ttk-public-routing` (после A3; можно параллельно с C2)
-- Результат: ETag/no-cache, Dijkstra с детерминированным выбором, корректные gaps панорамного прохода и отсутствие приватных данных в ответе.
-- Пути: `backend/app/routers/public.py`, `backend/tests/routing/**`.
-- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/routing -q`.
+- Статус: open
+- Зависимости: ttk-backend-lock
+- Область: `backend/app/auth.py`, `backend/app/routers/auth.py`, `backend/tests/auth/**`
+- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/auth -q`
 
-## Участник B: frontend организатора и посетителя
+Укрепить login/session/logout: Argon2id, opaque cookie, CSRF и same-origin, отзыв/истечение сессий, rate limit пять неудач в минуту по IP/email, одинаковые ошибки учётных данных. Проверить owner на каждом вложенном ID и отсутствие утечек токена/пароля. Добавить тесты двух организаторов, анонимных запросов и чужого map. Готово: аноним получает 401, чужой объект 404, неверный Origin/CSRF 403, logout отзывает сессию.
 
-### B1. Закрепить frontend-зависимости
+## ttk-map-validation: Завершить доменную валидацию карты
 
-- [ ] `ttk-frontend-lock`
-- Результат: `package-lock.json` формата lockfileVersion 3; установка поддерживается через `npm ci`.
-- Пути: `frontend/package-lock.json`.
-- Проверка: `npm --prefix frontend run test`.
+- Статус: open
+- Зависимости: ttk-auth-hardening
+- Область: `backend/app/routers/maps.py`, `backend/app/schemas.py`, `backend/tests/maps/**`
+- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/maps -q`
 
-### B2. Завершить API client и session lifecycle
+Дополнить базовый document handler проверкой map bounds, уникальных ID, геометрии стен/полигонов, принадлежности ссылок карте, типа фонового/панорамного asset, связи POI с узлами и publish gate. Сохранить порядок полного транзакционного replace, сильный If-Match, один прирост revision, неизменные slug/extent и rollback на любой ошибке. Добавить сценарии published save, конфликт редакторов, foreign references, невалидной геометрии и синхронизации POI-hotspot. Готово: неверный документ не меняет ни одну строку.
 
-- [ ] `ttk-frontend-core` (после B1)
-- Результат: обработка ошибок API, 204/304, CSRF в памяти, ETag/If-Match и координатные helpers покрыты тестами.
-- Пути: `frontend/src/shared/**`, `frontend/src/app/**`.
-- Проверка: `npm --prefix frontend run test -- src/shared`.
+## ttk-stitch-fixtures: Подготовить реальные материалы съёмки
 
-### B3. Кабинет организатора
+- Статус: open
+- Зависимости: ttk-foundation
+- Область: `backend/tests/fixtures/stitch/**`, `docs/capture_samples.md`
+- Проверка: приёмка на устройствах
 
-- [ ] `ttk-organizer-ui` (после B2 и A2)
-- Результат: настоящий login/logout, список и создание карт, сохранение, 412-конфликт, publish/unpublish, стабильная ссылка и iframe.
-- Пути: `frontend/src/features/organizer/**`.
-- Проверка: `npm --prefix frontend run test -- src/features/organizer`.
+Подготовить три полные серии по 16 фотографий в одном пространстве из трёх точек, включая съёмку на iPhone и Android; добавить provenance, параметры, порядок кадров и границы покрытия в manifest. Добавить отдельную готовую 2:1 equirectangular панораму для прямого импорта и отрицательные входы с повторами/разрывом/несвязанными кадрами. Готово: реальные файлы доступны тестам, разрешения на использование зафиксированы; synthetic screenshots не выдаются за устройство-съёмку.
 
-### B4. SVG-редактор плана
+## ttk-media-api: Добавить API загрузки и защищённую выдачу медиа
 
-- [ ] `ttk-plan-editor` (после B2 и C2)
-- Результат: импорт отображаемой подложки, ручное редактирование геометрии и POI, граф проходов, мобильный ввод и сохранение локальных координат.
-- Пути: `frontend/src/features/plan/**`.
-- Проверка: `npm --prefix frontend run test -- src/features/plan`.
+- Статус: open
+- Зависимости: ttk-auth-hardening
+- Область: `backend/app/routers/media.py`, `backend/app/modules/media/**`, `backend/tests/media/**`
+- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/media -q`
 
-### B5. Viewer и hotspot editor
+Реализовать upload/list asset, проверки JPEG/PNG/WebP по содержимому, лимиты и decompression-bomb защиту, EXIF rotation/GPS removal, оптимизированные варианты preview/mobile/full, атомарную запись и authorization-aware media endpoint. Проверять владельца или текущую published-ссылку до ответа 304; никогда не раздавать raw frames/unattached assets гостям. Создать unit/integration tests MIME spoofing, 413/415, изображения и revocation.
 
-- [ ] `ttk-panorama-ui` (после B2 и C2; независимо от B4)
-- Результат: настоящий Pannellum viewer, подходящий вариант медиа, pitch/vaov, POI-hotspots и направленные переходы.
-- Пути: `frontend/src/features/panorama/**`.
-- Проверка: `npm --prefix frontend run test -- src/features/panorama`.
+## ttk-capture-api: Добавить capture sessions и durable queue API
 
-### B6. Публичный visitor UI
+- Статус: open
+- Зависимости: ttk-media-api
+- Область: `backend/app/routers/captures.py`, `backend/app/modules/capture/**`, `backend/tests/capture/**`
+- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/capture -q`
 
-- [ ] `ttk-visitor-ui` (после B2, A4 и B5)
-- Результат: `/m/:slug` и `/embed/:slug` загружают карту по любому опубликованному slug, показывают POI, маршрут, панорамы и live-обновления.
-- Пути: `frontend/src/features/visitor/**`.
-- Проверка: `npm --prefix frontend run test -- src/features/visitor`.
+Реализовать create/list/get capture, идемпотентную загрузку слотов 0..15, start/retry/cancel и переходы в SQLite. Слоты принимают JPEG/PNG/WebP до лимита и запираются после stitch submit. Очередь должна переживать рестарт, максимум две попытки, отмена инвалидирует worker lease. Создать тесты повторной доставки, замены кадра, неполного набора, гонки submit/cancel, истечения и ownership.
 
-## Участник C: медиа, съёмка и worker
+## ttk-stitch-worker: Реализовать настоящий worker Hugin/enblend
 
-### C1. Подготовить реальные серии для stitching
+- Статус: open
+- Зависимости: ttk-capture-api, ttk-stitch-fixtures
+- Область: `backend/worker/**`, `backend/tests/stitch/**`
+- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/stitch -q`
 
-- [ ] `ttk-stitch-fixtures` (независимо от остальных задач)
-- Результат: лицензированные серии с 16 кадрами, manifest происхождения, готовая сфера и отрицательные наборы для тестов.
-- Пути: `backend/tests/fixtures/stitch/**`, `docs/capture_samples.md`.
-- Проверка: в manifest указаны все файлы, устройство, порядок и покрытие; синтетические изображения не выдаются за съёмку с устройства.
+Добавить отдельный процесс с durable SQLite claim/lease/heartbeat, Hugin pipeline pto_gen/cpfind/cpclean/autooptimiser/pano_modify/nona/enblend, timeout, cancellation и cleanup. Проверять замыкание горизонта на всех 16 кадрах, match inliers/RMS и реальную вертикальную alpha coverage; экспортировать spherical crop 4096 px без растяжения и создавать media variants. Только измеренное успешное покрытие создаёт Asset и succeeded; ошибки имеют contract error_code и retry ограничен. Добавить реальные fixture integration tests и responsiveness check API. Отсутствие Hugin/fixtures должно падать тестом.
 
-### C2. API медиа и защищённая выдача
+## ttk-public-routing: Сделать public snapshot и полный panorama walk
 
-- [ ] `ttk-media-api` (после A2; параллельно с A3)
-- Результат: проверка содержимого, лимитов и EXIF, варианты preview/mobile/full, атомарная запись и авторизационная проверка до 304.
-- Пути: `backend/app/routers/media.py`, `backend/app/modules/media/**`, `backend/tests/media/**`.
-- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/media -q`.
+- Статус: open
+- Зависимости: ttk-map-validation
+- Область: `backend/app/routers/public.py`, `backend/tests/routing/**`
+- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/routing -q`
 
-### C3. Capture API и очередь
+Усилить GET public map с publication-first ETag/no-cache и отдельным whitelist DTO. Маршрут строить серверным Dijkstra из опубликованного снимка с явными access nodes и стабильным tie-break. Собирать panorama walk только при панораме на каждом route node, directed transition на каждом шаге и edge <= max_walk_gap_units; иначе отдавать gaps и сохранять рабочий 2D route. Добавить tests развилок, disconnected graph, stale revision, unpublish, отсутствие owner/capture/raw-media в public JSON и walk gaps.
 
-- [ ] `ttk-capture-api` (после C2)
-- Результат: сессии, идемпотентные 16 слотов, retry/cancel, ownership и durable очередь с ограничением попыток.
-- Пути: `backend/app/routers/captures.py`, `backend/app/modules/capture/**`, `backend/tests/capture/**`.
-- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/capture -q`.
+## ttk-frontend-core: Закрепить общий frontend API и session lifecycle
 
-### C4. Worker Hugin/enblend
+- Статус: open
+- Зависимости: ttk-frontend-lock
+- Область: `frontend/src/shared/**`, `frontend/src/app/**`
+- Проверка: `npm --prefix frontend run test -- src/shared`
 
-- [ ] `ttk-stitch-worker` (после C1 и C3)
-- Результат: отдельный worker с lease/heartbeat, отменой, таймаутом, измерением качества панорамы и настоящими integration tests.
-- Пути: `backend/worker/**`, `backend/tests/stitch/**`.
-- Проверка: `docker compose --profile test run --rm backend-test python -m pytest backend/tests/stitch -q`.
+Завершить typed API client для auth/maps/assets/captures/public route, хранение CSRF только в памяти, ETag/If-Match, сохранение локальных изменений при 412 и обработку ApiError. Настроить accessible route shell и reusable geometry helpers. Добавить тесты API ошибок, 204/304, нестандартных размеров плана, восьми направлений и угла ±180. Не дублировать типы из CONTRACTS/types.ts.
 
-### C5. Мобильный capture UI
+## ttk-organizer-ui: Реализовать кабинет организатора
 
-- [ ] `ttk-capture-ui` (после B2, C3 и C4)
-- Результат: HTTPS-камера, ориентир и шаг 22,5°, preview/retake, последовательная загрузка, восстановление очереди, retry/cancel/failed и отдельная загрузка готовой сферы.
-- Пути: `frontend/src/features/capture/**`.
-- Проверка: `npm --prefix frontend run test -- src/features/capture`.
+- Статус: open
+- Зависимости: ttk-frontend-core, ttk-auth-hardening
+- Область: `frontend/src/features/organizer/**`
+- Проверка: `npm --prefix frontend run test -- src/features/organizer`
 
-## Совместная интеграция
+Сделать login/logout, список и создание карт, редакторский shell, состояние сохранения, конфликт версии 412 и publish/unpublish. Генерировать прямую стабильную ссылку и безопасный iframe snippet. Использовать общий API client, показывать причины publish gate, не оставлять операции записи в public UI. Component tests покрывают owner session, reload, retry/conflict и неизменность slug.
 
-Начинать после задач B3-B6, C4 и C5. Это один ID манифеста, но пути разделены между участниками:
+## ttk-plan-editor: Реализовать мобильный SVG редактор плана
 
-- [ ] `ttk-integration`
-- Участник A: `backend/app/main.py`, `backend/tests/integration/**`, `scripts/seed_demo.py`.
-- Участник B: `frontend/index.html`, `frontend/src/App.tsx`, `frontend/src/styles.css`, `frontend/src/shared/**`, `frontend/src/features/**`, `frontend/e2e/**`, `scripts/e2e.mjs`, `frontend/package.json`.
-- Участник C: `compose.yaml`, `README.md`, `docs/demo.md`.
-- Результат: backend и worker запускаются вместе, frontend подключён к реальным API, E2E проверяет путь организатора и посетителя, embed и live update.
-- Проверка: `npm --prefix frontend run test:e2e`, затем backend и frontend проверки из корня по отдельности.
+- Статус: open
+- Зависимости: ttk-frontend-core, ttk-media-api
+- Область: `frontend/src/features/plan/**`
+- Проверка: `npm --prefix frontend run test -- src/features/plan`
 
-## Приёмка на устройствах
+Сделать загрузку PNG/JPEG/WebP подложки, ручное рисование/перемещение стен, room/corridor polygons, все категории POI и пользовательскую категорию, graph nodes/edges и привязку POI к access node. Все операции сохраняют local plan units при zoom/pan и замене фона. Добавить тесты координатного преобразования, round-trip, удаления зависимостей и pointer/touch взаимодействий.
 
-- [ ] `ttk-device-acceptance` (после интеграции)
-- Ответственный: участник C координирует, B проходит visitor/UI сценарии, A проверяет сервис и API.
-- Путь: `docs/acceptance.md`, `docs/measurements/**`.
-- Результат: реальные сценарии на iOS Safari и Android Chrome по HTTPS, включая удачную и неудачную склейку, embed, производительность и touch UX; в отчёте есть устройства, версии и измерения.
+## ttk-panorama-ui: Реализовать viewer и редактор panorama hotspots
 
-## Порядок параллельной работы
+- Статус: open
+- Зависимости: ttk-frontend-core, ttk-media-api
+- Область: `frontend/src/features/panorama/**`
+- Проверка: `npm --prefix frontend run test -- src/features/panorama`
 
-1. Старт одновременно: A1, B1, C1.
-2. После lock-файлов: A2 и B2. C1 может продолжаться независимо.
-3. После A2: A3, B3 и C2 идут параллельно.
-4. После A3: A4. После C2: C3 и B4/B5 могут идти параллельно; B3 не блокирует эти задачи.
-5. После C1 и C3: C4. После зависимостей B6 и C5 завершаются независимо друг от друга.
-6. Затем совместная интеграция и device acceptance.
+Добавить Pannellum wrapper с lazy preview/mobile/full, ограниченным pitch и измеренными vaov/v_offset. Поддержать готовую сферу, позицию/heading на плане, ссылки POI и directed panorama transitions. Карточка хотспота использует текущие данные POI, а не копию текста. Создать тесты углов, входной ориентации, смены текста, ограниченного вертикального охвата, upload errors и удаления целей. Экспортировать viewer для public UI.
 
-Проверяйте зависимости конкретной задачи, а не ждите закрытия всей предыдущей волны. Backlog (offline, этажи, аналитика, AI-распознавание плана, несколько зданий, полная 3D-реконструкция) в этот MVP-план не входит.
+## ttk-capture-ui: Реализовать живой мобильный capture guide
 
-## Git и pull request
+- Статус: open
+- Зависимости: ttk-frontend-core, ttk-capture-api, ttk-stitch-worker
+- Область: `frontend/src/features/capture/**`
+- Проверка: `npm --prefix frontend run test -- src/features/capture`
 
-Используйте короткую ветку на одну задачу: `task/ttk-auth-hardening`, `task/ttk-plan-editor` и так далее. Не работайте прямо в `main` и не держите одну ветку на весь срок проекта. Владелец задачи открывает Draft PR сразу, когда появился первый проверяемый результат; это даёт команде видимость прогресса, даже если задача ещё не готова к merge.
+Сделать HTTPS getUserMedia видоискатель, 16 шагов с номинальным шагом 22.5 градусов, живой ghost overlay, просмотр и пересъёмку каждого кадра, optional DeviceOrientation с iOS permission внутри gesture. Загружать кадры последовательно с retry, восстанавливать сессию, показывать очередь/прогресс/cancel/failed и дать прямой upload готовой сферы отдельно. Тестировать отказ разрешений, отсутствие гироскопа, secure-context и сетевой retry; не показывать stitch success до API succeeded.
 
-У каждого участника должен быть отдельный clone или `git worktree`. Не переключайте ветки и не редактируйте один checkout втроём: Git branch принадлежит всему checkout, а незакоммиченные изменения там общие.
+## ttk-visitor-ui: Реализовать visitor map, navigation и embed
 
-```text
-git switch main
-git pull --ff-only origin main
-git switch -c task/ttk-auth-hardening
-# работа только в путях задачи
-git add backend/app/auth.py backend/app/routers/auth.py backend/tests/auth
-git commit -m "ttk-auth-hardening: close organizer auth checks"
-git push -u origin task/ttk-auth-hardening
-```
+- Статус: open
+- Зависимости: ttk-frontend-core, ttk-public-routing, ttk-panorama-ui
+- Область: `frontend/src/features/visitor/**`
+- Проверка: `npm --prefix frontend run test -- src/features/visitor`
 
-Один PR закрывает один task ID и меняет только его разрешённые пути. В заголовке укажите ID задачи. Перед merge запустите проверку задачи, пройдите review и синхронизируйте ветку с актуальным `main`, если появились новые коммиты. GitHub workflow также отклонит PR, если заголовок не содержит task ID или изменены файлы вне `allowed_paths`. После merge удалите ветку, отметьте ID завершённым в этом плане и в `manifest.json`.
+Сделать mobile-first /m/:slug и /embed/:slug, 2D план, фильтр/карточки POI, переключение панорам, выбор маршрута и визуализацию polyline. Реализовать route walkthrough по API шагам; gaps объясняют отсутствие прохода. Poll public snapshot каждые 15 секунд/при возврате вкладки, обновлять без смены URL и закрывать view на unpublish. Добавить тесты public-only доступа, route errors, live POI update, panorama walk/gaps, embed layout.
 
-Минимальный review PR:
+## ttk-integration: Подключить feature routers и собрать E2E
 
-- изменены только `allowed_paths` своей задачи;
-- команда `verify_cmd` запущена и результат указан в PR;
-- нет незапланированного изменения контракта, схемы или shared-кода;
-- негативные сценарии задачи покрыты тестом или явно отмечены как остаточный риск;
-- второй участник посмотрел diff и подтвердил, что задача не ломает согласованные зависимости.
+- Статус: open
+- Зависимости: ttk-organizer-ui, ttk-plan-editor, ttk-panorama-ui, ttk-capture-ui, ttk-visitor-ui, ttk-stitch-worker
+- Область: `.github/**`, `AGENTS.md`, `TASKS/WORKPLAN.md`, `TASKS/manifest.json`, `backend/app/main.py`, `frontend/index.html`, `frontend/src/App.tsx`, `frontend/src/styles.css`, `frontend/src/shared/**`, `frontend/src/features/**`, `compose.yaml`, `frontend/package.json`, `backend/tests/integration/**`, `frontend/e2e/**`, `scripts/e2e.mjs`, `scripts/seed_demo.py`, `README.md`, `docs/demo.md`
+- Проверка: `npm --prefix frontend run test:e2e`
 
-Задача-зависимость должна быть смержена прежде, чем начинать её потомка от `main`. Так потомок получает уже интегрированный код, а не локальную копию чужой ветки. Если PR устарел, владелец обновляет его из `main` и решает конфликты в своей ветке; не переписывайте чужую ветку и не делайте force-push в `main`.
+Подключить API routers и feature exports, включить реальный worker queue consumer в уже созданный Compose service, добавить production SPA serving, CSP маршрутов и безопасный embed. Создать изолированный seed через реальные API, Playwright cross-origin iframe и полный E2E сценарий: вход, импорт/рисование, POI, собственная серия stitching, hotspot, маршрут, live update <=20 секунд, 412 и unpublish/media revoke. Runner обязан использовать настоящий backend/SQLite/worker и ненулевой код при сбое; обновить README и demo runbook.
 
-При конфликте сначала сверяйте область владения по этому плану. Не решайте его выбором «ours/theirs» вслепую: оставьте оба нужных изменения, запустите проверки затронутой задачи, затем повторите общие проверки. Общие файлы `CONTRACTS/*`, `frontend/src/shared/*`, `backend/app/main.py`, `frontend/src/App.tsx` и `compose.yaml` меняются только в выделенной для них задаче или согласованной интеграции.
+## ttk-device-acceptance: Проверить мобильный сценарий и релизные критерии
+
+- Статус: open
+- Зависимости: ttk-integration
+- Область: `docs/acceptance.md`, `docs/measurements/**`
+- Проверка: приёмка на устройствах
+
+На HTTPS пройти сценарий на iOS Safari и Android Chrome: live capture overlay, реальные успешные серии, failed stitching UX, WebGL/pitch, touch targets, public map, external-origin embed без third-party cookies и fullscreen. Снять швы у трёх панорам, измерить preview/health/live и записать точные версии устройств, ОС и результаты Linux/macOS/Windows проверок. Готово: acceptance report содержит доказательства; загрузка готовой сферы не закрывает проверку stitching.
+
+## ttk-audit-remediation: Закрыть замечания аудита и проверить полный MVP
+
+- Статус: in_progress
+- Зависимости: ttk-foundation, ttk-backend-lock, ttk-frontend-lock, ttk-auth-hardening, ttk-map-validation, ttk-stitch-fixtures, ttk-media-api, ttk-capture-api, ttk-stitch-worker, ttk-public-routing, ttk-frontend-core, ttk-organizer-ui, ttk-plan-editor, ttk-panorama-ui, ttk-capture-ui, ttk-visitor-ui, ttk-integration, ttk-device-acceptance
+- Область: `backend/**`, `frontend/**`, `CONTRACTS/**`, `scripts/**`, `docs/**`, `.github/**`, `TASKS/**`, `AGENTS.md`, `README.md`, `compose.yaml`, `.dockerignore`, `.env.example`, `Audit.md`, `Improvements.md`
+- Проверка: `npm --prefix frontend run test:e2e`
+
+Авторизованное пользователем исправление A01–A20; общий код и wiring входят в задачу. Завершение после проверок и merge, device acceptance подтверждается отдельно.

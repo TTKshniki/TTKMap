@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from uuid import uuid4
+import shutil
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 
 from fastapi import APIRouter, Depends, Header, Request, Response
 
@@ -16,7 +19,8 @@ from backend.app.modules.media.storage import (
     inspect_image_bytes,
     parse_multipart_fields,
 )
-from backend.app.routers.maps import _owned_map
+from backend.app.modules.maps.snapshots import _owned_map
+from backend.app.modules.media.images import InvalidImage
 
 
 router = APIRouter(tags=["media"])
@@ -66,7 +70,12 @@ async def upload_asset(
     with database() as connection:
         _owned_map(connection, map_id, row["user_id"])
 
-    fields = await parse_multipart_fields(request, PANORAMA_MAX_BYTES)
+    async with request.app.state.media_slots:
+        fields = await parse_multipart_fields(request, PANORAMA_MAX_BYTES)
+        return await run_in_threadpool(_store_upload, map_id, row['user_id'], fields)
+
+
+def _store_upload(map_id, owner_id, fields):
     kind_entry = fields.get("kind")
     file_entry = fields.get("file")
     if kind_entry is None or file_entry is None:
@@ -85,7 +94,7 @@ async def upload_asset(
     vaov_deg = None
     v_offset_deg = None
     if kind == "panorama":
-        if abs(width - 2 * height) > max(2, int(width * 0.02)):
+        if width != 2 * height:
             raise ApiError(
                 422,
                 "VALIDATION_ERROR",
@@ -99,18 +108,25 @@ async def upload_asset(
 
     asset_id = str(uuid4())
     store = AssetStore(settings.media_path)
-    preview_key, mobile_key, full_key, final_w, final_h = store.store_asset_variants(asset_id, raw_bytes, width, height)
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-    with database() as connection:
-        with transaction(connection, immediate=True):
-            _owned_map(connection, map_id, row["user_id"])
-            connection.execute(
-                "INSERT INTO assets(id,map_id,kind,source,width_px,height_px,projection,haov_deg,vaov_deg,v_offset_deg,preview_key,mobile_key,full_key,created_at) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (asset_id, map_id, kind, "upload", final_w, final_h, projection, haov_deg, vaov_deg, v_offset_deg, preview_key, mobile_key, full_key, now),
-            )
-            saved = connection.execute("SELECT * FROM assets WHERE id=?", (asset_id,)).fetchone()
+    try:
+        preview_key, mobile_key, full_key, final_w, final_h = store.store_asset_variants(asset_id, raw_bytes, width, height, kind=kind)
+        with database() as connection:
+            with transaction(connection, immediate=True):
+                _owned_map(connection, map_id, owner_id)
+                connection.execute(
+                    "INSERT INTO assets(id,map_id,kind,source,width_px,height_px,projection,haov_deg,vaov_deg,v_offset_deg,preview_key,mobile_key,full_key,created_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (asset_id, map_id, kind, "upload", final_w, final_h, projection, haov_deg, vaov_deg, v_offset_deg, preview_key, mobile_key, full_key, now),
+                )
+                saved = connection.execute("SELECT * FROM assets WHERE id=?", (asset_id,)).fetchone()
+    except InvalidImage as exc:
+        shutil.rmtree(settings.media_path / asset_id, ignore_errors=True)
+        raise ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', str(exc)) from exc
+    except BaseException:
+        shutil.rmtree(settings.media_path / asset_id, ignore_errors=True)
+        raise
     return _asset_dto(saved)
 
 
@@ -154,11 +170,10 @@ def get_media(
 
     etag = f'"asset-{asset_id}-{variant}"'
     headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
+    file_path = (settings.media_path / rel_key).resolve()
+    if settings.media_path.resolve() not in file_path.parents or not file_path.is_file():
+        raise ApiError(404, "NOT_FOUND", "Media file not found")
     if if_none_match == etag:
         return Response(status_code=304, headers=headers)
 
-    file_path = (settings.media_path / rel_key).resolve()
-    if not file_path.is_file():
-        raise ApiError(404, "NOT_FOUND", "Media file not found")
-
-    return Response(content=file_path.read_bytes(), media_type="image/webp", headers=headers)
+    return FileResponse(file_path, media_type="image/webp", headers=headers)

@@ -65,7 +65,13 @@
 .ttk-capture-guide__stage img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+}
+
+.ttk-capture-guide__preview {
+  position: absolute;
+  inset: 0;
+  background: #0f172a;
 }
 
 .ttk-capture-guide__reticle {

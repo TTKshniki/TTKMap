@@ -1,7 +1,7 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import type { AssetRef, Hotspot, Panorama, Poi } from '../../../../CONTRACTS/types';
 import { Icon } from '../../shared/Icon';
-import type { RichPoiItem } from '../../shared/spacesData';
+type RichPoiItem = { id: string; name: string; categoryName?: string; description: string; equipment?: string; wifi?: string; image?: string };
 import {
   buildViewerHotspots,
   clampHfov,
@@ -63,6 +63,24 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
   const [editorTargetId, setEditorTargetId] = useState<string>('');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [forceFullQuality, setForceFullQuality] = useState(false);
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    dialog.current?.querySelector<HTMLElement>('button')?.focus();
+    const keys = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'Tab' && dialog.current) {
+        const controls = Array.from(dialog.current.querySelectorAll<HTMLElement>('button:not(:disabled),select,input,[tabindex="0"]'));
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    document.addEventListener('keydown', keys);
+    return () => { document.removeEventListener('keydown', keys); previous?.focus(); };
+  }, [isOpen, onClose]);
+  useEffect(() => { setLoadError(null); setForceFullQuality(false); }, [panorama?.id, isOpen]);
 
   const budget = useMemo(() => readViewportBudget(), []);
   const media = useMemo(
@@ -166,7 +184,7 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
   const canEdit = editable && Boolean(panorama);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4">
+    <div ref={dialog} role="dialog" aria-modal="true" aria-label={title || 'Панорама'} className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4">
       <div className="bg-slate-900 rounded-2xl sm:rounded-3xl w-full max-w-4xl overflow-hidden shadow-2xl border border-slate-800 flex flex-col h-[82vh] max-h-[640px] relative animate-modal-enter">
         {/* Header */}
         <div className="p-4 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between text-white z-10 gap-3">
@@ -231,7 +249,7 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
         {canEdit && (
           <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center gap-2 text-xs text-slate-200 z-10">
             <span className="font-semibold text-brand-500">
-              Разметка хотспотов — двойной клик по панораме:
+              Разметка: выберите цель и поверните обзор к ней.
             </span>
             <select
               value={editorKind}
@@ -271,6 +289,7 @@ export const PanoramaViewer: React.FC<PanoramaViewerProps> = ({
                 ))}
               </select>
             )}
+            <button onClick={() => handlePickPoint({ yaw: view.yaw, pitch: view.pitch })} className="px-3 py-2 bg-brand-600 rounded-lg">Добавить хотспот в центре</button>
             <span className="text-[11px] text-slate-400">
               Добавлено хотспотов: {currentHotspots.length} • наклон ограничен{' '}
               {Math.round(bounds.minPitch)}…{Math.round(bounds.maxPitch)}°

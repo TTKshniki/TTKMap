@@ -119,7 +119,14 @@ export const apiClient = {
     setCsrfToken(null);
   },
 
-  listMaps: () => request<MapSummary[]>('/api/v1/maps'),
+  listMaps: async (): Promise<MapSummary[]> => {
+    const maps: MapSummary[] = [];
+    for (let offset = 0; ; offset += 100) {
+      const page = await request<MapSummary[]>(`/api/v1/maps?offset=${offset}&limit=100`);
+      maps.push(...page);
+      if (page.length < 100) return maps;
+    }
+  },
 
   createMap: async (input: CreateMapRequest): Promise<{ map: OrganizerMap; etag: string }> => {
     const { data, response } = await requestWithResponse<OrganizerMap>('/api/v1/maps', {

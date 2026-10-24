@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Any
+import logging
+import sqlite3
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -72,8 +74,14 @@ def install_error_handlers(app: FastAPI) -> None:
             headers={"Cache-Control": "no-store"},
         )
 
+    @app.exception_handler(sqlite3.IntegrityError)
+    async def handle_integrity(_: Request, exc: sqlite3.IntegrityError) -> JSONResponse:
+        logging.getLogger(__name__).warning('Rejected inconsistent document: %s', exc)
+        return JSONResponse(status_code=422, content=error_body('VALIDATION_ERROR', 'Document contains conflicting identifiers or references'), headers={'Cache-Control': 'no-store'})
+
     @app.exception_handler(Exception)
-    async def handle_unexpected_error(_: Request, __: Exception) -> JSONResponse:
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        logging.getLogger(__name__).error("Request %s failed", request.url.path, exc_info=exc)
         return JSONResponse(
             status_code=500,
             content=error_body("INTERNAL_ERROR", "An internal error occurred"),

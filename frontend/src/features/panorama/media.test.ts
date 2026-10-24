@@ -64,10 +64,10 @@ describe('panorama media selection', () => {
     expect(variantUrl(null, 'full')).toBeNull();
   });
 
-  it('finds the asset bound to the panorama and falls back to any panorama asset', () => {
+  it('finds only the asset bound to the panorama', () => {
     expect(pickPanoramaAsset(panorama, [asset])?.id).toBe('asset-1');
     const otherPanorama = { ...panorama, asset_id: 'missing' };
-    expect(pickPanoramaAsset(otherPanorama, [asset])?.id).toBe('asset-1');
+    expect(pickPanoramaAsset(otherPanorama, [asset])).toBeNull();
     expect(pickPanoramaAsset(null, [asset])).toBeNull();
   });
 

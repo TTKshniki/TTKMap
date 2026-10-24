@@ -88,7 +88,18 @@ def get_owned_capture(connection, map_id: str, capture_id: str, owner_id: str):
     return row
 
 
-def store_capture_frame(connection, capture_row, index: int, raw_bytes: bytes) -> dict:
+def prepare_capture_frame(capture_id: str, index: int, raw_bytes: bytes):
+    """Prepare immutable bytes before taking SQLite's writer lock."""
+    prepared = normalize_frame(raw_bytes)
+    normalized, _, _, digest = prepared
+    if len(normalized) > FRAME_MAX_BYTES:
+        raise ApiError(413, 'MEDIA_TOO_LARGE', 'Normalized frame exceeds maximum allowed size')
+    storage_key = f'captures/{capture_id}/frame-{index:02d}-{digest}.bin'
+    AssetStore(settings.media_path).write_atomic(storage_key, normalized)
+    return prepared, storage_key
+
+
+def store_capture_frame(connection, capture_row, index: int, raw_bytes: bytes, prepared=None, storage_key=None) -> dict:
     if not (0 <= index <= 15):
         raise ApiError(422, "VALIDATION_ERROR", "Frame index must be between 0 and 15", issues=[{"path": "index", "message": "Must be 0..15"}])
 
@@ -107,7 +118,7 @@ def store_capture_frame(connection, capture_row, index: int, raw_bytes: bytes) -
         raise ApiError(409, "CONFLICT", "Capture frames are sealed after stitch submission")
 
     try:
-        normalized, width, height, digest = normalize_frame(raw_bytes)
+        normalized, width, height, digest = prepared if prepared is not None else normalize_frame(raw_bytes)
     except ValueError as exc:
         raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", str(exc)) from exc
     if len(normalized) > FRAME_MAX_BYTES:
@@ -115,9 +126,9 @@ def store_capture_frame(connection, capture_row, index: int, raw_bytes: bytes) -
 
     # Never overwrite the committed frame before its DB replacement commits.
     # Rollback/crash may leave an unreferenced file, but preserves the old slot.
-    storage_key = f"captures/{capture_id}/frame-{index:02d}-{digest}.bin"
-    store = AssetStore(settings.media_path)
-    store.write_atomic(storage_key, normalized)
+    if storage_key is None:
+        storage_key = f"captures/{capture_id}/frame-{index:02d}-{digest}.bin"
+        AssetStore(settings.media_path).write_atomic(storage_key, normalized)
     now = _now()
 
     if existing is None:

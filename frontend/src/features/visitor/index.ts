@@ -1,5 +1,3 @@
-export { MapNavigationView, SpacesHeroView } from './VisitorSpaceView';
-export type { MapNavigationViewProps, SpacesHeroViewProps } from './VisitorSpaceView';
 export { PublicSpacePage } from './PublicSpacePage';
 export type { PublicSpacePageProps } from './PublicSpacePage';
 export { PublicPlan } from './PublicPlan';

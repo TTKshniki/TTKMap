@@ -29,7 +29,19 @@ export function matchRoute(pattern: string, path: string): RouteMatch | null {
   return { path: pattern, params };
 }
 
-export function navigate(path: string): void {
-  window.history.pushState(null, '', path);
-  window.dispatchEvent(new PopStateEvent('popstate'));
+let navigationGuard: (() => boolean) | null = null;
+
+export function guardNavigation(guard: () => boolean): () => void {
+  navigationGuard = guard;
+  return () => { if (navigationGuard === guard) navigationGuard = null; };
+}
+
+export function confirmNavigation(): boolean {
+  return navigationGuard?.() ?? true;
+}
+
+export function navigate(path: string, confirmed = false): void {
+  if (!confirmed && !confirmNavigation()) return;
+  window.history.pushState({ ttkIndex: (window.history.state?.ttkIndex ?? 0) + 1 }, '', path);
+  window.dispatchEvent(new Event('ttk:navigate'));
 }

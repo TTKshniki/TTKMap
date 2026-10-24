@@ -1,3 +1,9 @@
-# Backend feature modules
+# Backend modules
 
-Feature agents own separate subdirectories under this folder. Each module exports a router and service without editing `backend/app/main.py`; integration registers routers after feature work is complete.
+HTTP routers находятся в `backend/app/routers` и подключаются в `main.py`. Feature-изменение включает необходимое подключение и проверки реального пути.
+
+- `maps`: согласованные organizer/public snapshots, ownership helper и доменная валидация документа.
+- `media`: общий ограниченный multipart reader, проверки изображений, WebP-варианты и атомарное файловое хранилище.
+- `capture`: сессии, фиксированные слоты, идемпотентная доставка и durable SQLite queue. Декодирование и запись кадра выполняются до короткой writer-транзакции с повторной проверкой состояния.
+
+Hugin вызывается только отдельным `backend/worker`. Подробные инварианты — `CONTRACTS/AGENTS.md`, команды запуска и эксплуатации — корневой README.

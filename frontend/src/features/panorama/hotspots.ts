@@ -27,7 +27,7 @@ export const DEFAULT_PITCH_LIMIT = 85;
 /** Keeps organizer input inside the range Pannellum can render without flipping. */
 export function clampHotspotAngles(yawDeg: number, pitchDeg: number): { yaw: number; pitch: number } {
   const pitch = Number.isFinite(pitchDeg) ? Math.max(-89, Math.min(89, pitchDeg)) : 0;
-  const yaw = Number.isFinite(yawDeg) ? Math.round(normalizeYaw(yawDeg) * 10) / 10 : 0;
+  const yaw = Number.isFinite(yawDeg) ? normalizeYaw(Math.round(normalizeYaw(yawDeg) * 10) / 10) : 0;
   return { yaw, pitch: Math.round(pitch * 10) / 10 };
 }
 

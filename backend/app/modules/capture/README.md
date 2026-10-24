@@ -58,7 +58,7 @@ Base: `c0fb4a9` (origin/main). Windows, Python 3.12, Node 22.23.4:
 - `git diff --check`: passed.
 
 Docker is unavailable on this host, so the prescribed Compose test command was
-not run. The unchanged frontend build wrapper exits with code 1 on Windows:
-its `spawnSync('npx.cmd', ..., {shell:false})` reports `EINVAL`. Direct TypeScript
-and Vite checks above succeeded; the wrapper is outside C3's allowed paths.
-These local checks do not replace GitHub CI or teammate approval before merge.
+not run. These historical checks do not replace current acceptance. The build wrapper
+now calls TypeScript/Vite JavaScript entrypoints through Node; the earlier Windows
+`npx.cmd` invocation has been removed. A new Windows smoke is still required.
+Current verification is recorded in `docs/audit-resolution.md`.

@@ -151,7 +151,7 @@ export const PublicSpacePage: React.FC<PublicSpacePageProps> = ({ slug, mode = '
     } catch (err) {
       if (err instanceof ApiClientError) {
         if (err.status === 409) {
-          setRouteError('Карта изменилась. Маршрут пересчитан по новой ревизии.');
+          setRouteError('Карта изменилась. Данные обновлены — постройте маршрут заново.');
           await refresh();
         } else if (err.status === 422) {
           setRouteError('Между этими точками нет связанного прохода');

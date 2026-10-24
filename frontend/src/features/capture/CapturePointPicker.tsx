@@ -1,6 +1,6 @@
 import React, { useCallback, useRef } from 'react';
 import type { MapDocument } from '../../../../CONTRACTS/types';
-import { svgPointFromClient } from '../../shared/coordinates';
+import { pointFromSvg } from '../../shared/coordinates';
 import { Icon } from '../../shared/Icon';
 import './capture.css';
 
@@ -32,9 +32,8 @@ export const CapturePointPicker: React.FC<CapturePointPickerProps> = ({
   const handleClick = useCallback(
     (event: React.MouseEvent<SVGSVGElement>) => {
       if (!svgRef.current) return;
-      const rect = svgRef.current.getBoundingClientRect();
-      const point = svgPointFromClient(event.clientX, event.clientY, rect, widthUnits, heightUnits);
-      onChange({ x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 });
+      const point = pointFromSvg(svgRef.current, event.clientX, event.clientY);
+      onChange({ x: Math.max(0, Math.min(widthUnits, Math.round(point.x * 10) / 10)), y: Math.max(0, Math.min(heightUnits, Math.round(point.y * 10) / 10)) });
     },
     [heightUnits, onChange, widthUnits],
   );
@@ -55,13 +54,18 @@ export const CapturePointPicker: React.FC<CapturePointPickerProps> = ({
         ref={svgRef}
         className="ttk-capture-picker__svg"
         viewBox={`0 0 ${widthUnits} ${heightUnits}`}
+        style={{ aspectRatio: `${widthUnits} / ${heightUnits}` }}
         preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label="Выбор точки съёмки на плане"
         data-testid="capture-point-picker"
         onClick={handleClick}
       >
-        <rect x={2} y={2} width={widthUnits - 4} height={heightUnits - 4} rx={12} fill="#f8fafc" stroke="#cbd5e1" strokeWidth={2} />
+        <rect width={widthUnits} height={heightUnits} fill="#f8fafc" />
+        {mapDocument?.background_asset_id && (
+          <image href={`/api/v1/media/${mapDocument.background_asset_id}/full`}
+            width={widthUnits} height={heightUnits} preserveAspectRatio="none" />
+        )}
         {shapes.map((shape) => {
           const points = shape.points.map((point) => `${point.x},${point.y}`).join(' ');
           return shape.kind === 'wall' ? (

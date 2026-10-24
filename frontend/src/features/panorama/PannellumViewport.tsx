@@ -92,7 +92,6 @@ export const PannellumViewport: React.FC<PannellumViewportProps> = (props) => {
   const [loading, setLoading] = useState(true);
   const [ready, setReady] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const disposedRef = useRef(false);
 
   const reportError = useCallback(
     (error: Error) => {
@@ -107,7 +106,7 @@ export const PannellumViewport: React.FC<PannellumViewportProps> = (props) => {
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !imageUrl) return;
-    disposedRef.current = false;
+    let disposed = false;
     setLoading(true);
     setReady(false);
     setFailure(null);
@@ -121,10 +120,11 @@ export const PannellumViewport: React.FC<PannellumViewportProps> = (props) => {
       try {
         api = await loadPannellum();
       } catch (error) {
+        if (disposed) return;
         reportError(error instanceof Error ? error : new Error(String(error)));
         return;
       }
-      if (disposedRef.current || !containerRef.current) return;
+      if (disposed || !containerRef.current) return;
       try {
         viewer = api.viewer(containerRef.current, viewerConfig(props));
       } catch (error) {
@@ -135,8 +135,11 @@ export const PannellumViewport: React.FC<PannellumViewportProps> = (props) => {
       // Hotspots are part of the initial config; remember them so the diffing
       // effect below does not add them twice.
       appliedHotspotsRef.current = new Map(hotspots.map((hotspot) => [hotspot.id, hotspotSignature(hotspot)]));
+      viewer.on('error', (message) => {
+        if (!disposed) reportError(new Error(typeof message === 'string' ? message : 'Не удалось загрузить панораму'));
+      });
       viewer.on('load', () => {
-        if (disposedRef.current) return;
+        if (disposed) return;
         // Fresh spherical projection: drop the "click point" listener below.
         setLoading(false);
       });
@@ -148,7 +151,7 @@ export const PannellumViewport: React.FC<PannellumViewportProps> = (props) => {
     void boot();
 
     return () => {
-      disposedRef.current = true;
+      disposed = true;
       appliedHotspotsRef.current = new Map();
       try {
         viewer?.destroy();
@@ -234,8 +237,8 @@ export const PannellumViewport: React.FC<PannellumViewportProps> = (props) => {
           <img src={imageUrl} alt="" aria-hidden />
           <div className="ttk-pano-fallback__notice">
             <strong className="block mb-1">Интерактивный 3D-просмотр недоступен</strong>
-            {failure}. Панорама показана статично; на телефоне откройте карту по HTTPS, чтобы включить
-            вращение.
+            Не удалось загрузить изображение или запустить WebGL. Проверьте соединение
+            и откройте панораму снова.
           </div>
         </div>
       )}

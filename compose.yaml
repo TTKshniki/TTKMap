@@ -3,13 +3,12 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    env_file:
-      - .env
-    ports:
-      - "8000:8000"
-    volumes:
-      - ttkmap-data:/data
-    command: ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+      target: api
+    env_file: [.env]
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["ttkmap-data:/data"]
+    restart: unless-stopped
+    init: true
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
       interval: 10s
@@ -19,22 +18,24 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    env_file:
-      - .env
-    volumes:
-      - ttkmap-data:/data
-    command: ["python", "-m", "backend.worker.main"]
+      target: worker
+    env_file: [.env]
+    volumes: ["ttkmap-data:/data"]
+    restart: unless-stopped
+    init: true
+    mem_limit: 3g
+    cpus: 2
+    stop_grace_period: 15s
   backend-test:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: backend-test
     environment:
       DATABASE_PATH: /tmp/ttkmap-test.sqlite
       MEDIA_PATH: /tmp/ttkmap-test-media
       APP_ORIGIN: http://127.0.0.1:5173
       COOKIE_SECURE: "false"
-    command: ["python", "-m", "pytest", "backend/tests", "-q"]
     profiles: [test]
-
 volumes:
   ttkmap-data:

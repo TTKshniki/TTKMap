@@ -10,4 +10,4 @@ SQLite connections must enable `foreign_keys`, WAL and a busy timeout. Media is 
 
 The mandatory product includes protected editing, imported and hand-drawn plans, POIs, mobile guided capture, real server-side stitching, direct panorama upload, panorama placement/hotspots, stable public links and embed, graph routing and a conditional panorama walkthrough. Offline mode, multiple floors, analytics, AI plan recognition, multiple buildings and full 3D reconstruction are backlog.
 
-The checked-in worker shell is intentionally idle until the stitching task replaces it with the durable Hugin/enblend consumer. It must never claim success or fabricate media.
+The worker consumes durable jobs using a lease and heartbeat. Only a measured, validated stitching result may become a ready asset.

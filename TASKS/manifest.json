@@ -544,6 +544,58 @@
         "#/components/schemas/RouteResponse"
       ],
       "verify_cmd": null
+    },
+    {
+      "id": "ttk-audit-remediation",
+      "title": "Закрыть замечания аудита и проверить полный MVP",
+      "role": "integration",
+      "state": "in_progress",
+      "description": "Авторизованное пользователем исправление A01–A20; общий код и wiring входят в задачу. Завершение после проверок и merge, device acceptance подтверждается отдельно.",
+      "allowed_paths": [
+        "backend/**",
+        "frontend/**",
+        "CONTRACTS/**",
+        "scripts/**",
+        "docs/**",
+        ".github/**",
+        "TASKS/**",
+        "AGENTS.md",
+        "README.md",
+        "compose.yaml",
+        ".dockerignore",
+        ".env.example",
+        "Audit.md",
+        "Improvements.md"
+      ],
+      "context_files": [
+        "Audit.md",
+        "Improvements.md",
+        "specification.md"
+      ],
+      "depends_on": [
+        "ttk-foundation",
+        "ttk-backend-lock",
+        "ttk-frontend-lock",
+        "ttk-auth-hardening",
+        "ttk-map-validation",
+        "ttk-stitch-fixtures",
+        "ttk-media-api",
+        "ttk-capture-api",
+        "ttk-stitch-worker",
+        "ttk-public-routing",
+        "ttk-frontend-core",
+        "ttk-organizer-ui",
+        "ttk-plan-editor",
+        "ttk-panorama-ui",
+        "ttk-capture-ui",
+        "ttk-visitor-ui",
+        "ttk-integration",
+        "ttk-device-acceptance"
+      ],
+      "contract_refs": [
+        "CONTRACTS/AGENTS.md"
+      ],
+      "verify_cmd": "npm --prefix frontend run test:e2e"
     }
   ]
 }

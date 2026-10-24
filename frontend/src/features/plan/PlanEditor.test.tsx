@@ -1,245 +1,135 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { PlanEditor } from './PlanEditor';
-import type { MapDocument } from '../../../../CONTRACTS/types';
-import { apiClient } from '../../shared/api';
-
-vi.mock('../../shared/api');
-vi.mock('../../shared/Icon', () => ({ Icon: ({ name }: { name: string }) => <span data-icon={name} /> }));
-
-describe('PlanEditor', () => {
-  const mockDoc: MapDocument = {
-    title: 'Test Plan',
-    description: '',
-    is_published: false,
-    scale_m_per_unit: 1.0,
-    max_walk_gap_units: 50,
-    background_asset_id: null,
-    shapes: [],
-    nodes: [],
-    edges: [],
-    pois: [],
-    panoramas: [],
-    hotspots: [],
-  };
-
-  const mockProps = {
-    mapId: 'map-123',
-    widthUnits: 700,
-    heightUnits: 500,
-    document: mockDoc,
-    darkMode: false,
-    isAuthenticated: true,
-    onChangeDocument: vi.fn(),
-    onSaveDocument: vi.fn(),
-    onNotify: vi.fn(),
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { PlanEditor } from "./PlanEditor";
+import { emptyMapDocument } from "../../shared/document";
+import { apiClient } from "../../shared/api";
+import { connectNodes, removeSelection } from "./model";
+vi.mock("../../shared/api");
+const notify = vi.fn();
+function Editor() {
+  const [doc, change] = useState(emptyMapDocument());
+  return (
+    <>
+      <PlanEditor
+        mapId="map"
+        widthUnits={700}
+        heightUnits={500}
+        document={doc}
+        isAuthenticated
+        onChangeDocument={change}
+        onNotify={notify}
+        onSaveDocument={vi.fn()}
+      />
+      <output data-testid="document">{JSON.stringify(doc)}</output>
+    </>
+  );
+}
+function canvas() {
+  const element = screen.getByTestId("plan-canvas");
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    top: 0,
+    width: 700,
+    height: 500,
+  } as DOMRect);
+  return element;
+}
+describe("plan editor", () => {
+  it("creates POIs without inventing edges and edits their attributes", () => {
+    render(<Editor />);
+    const svg = canvas();
+    fireEvent.click(svg, { clientX: 100, clientY: 150 });
+    fireEvent.change(screen.getByLabelText("Название объекта"), {
+      target: { value: "Вход" },
+    });
+    fireEvent.change(screen.getByLabelText("Категория"), {
+      target: { value: "entrance" },
+    });
+    fireEvent.click(svg, { clientX: 500, clientY: 300 });
+    const doc = JSON.parse(screen.getByTestId("document").textContent!);
+    expect(doc.pois[0]).toMatchObject({
+      title: "Вход",
+      category: "entrance",
+      x: 100,
+      y: 150,
+    });
+    expect(doc.nodes).toHaveLength(2);
+    expect(doc.edges).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText("От узла"), {
+      target: { value: doc.nodes[0].id },
+    });
+    fireEvent.change(screen.getByLabelText("К узлу"), {
+      target: { value: doc.nodes[1].id },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Добавить проход" }));
+    expect(
+      JSON.parse(screen.getByTestId("document").textContent!).edges,
+    ).toHaveLength(1);
   });
-
-  it('renders plan editor with tool selection', () => {
-    render(<PlanEditor {...mockProps} />);
-    expect(screen.getByText(/Редактор/i)).toBeInTheDocument();
+  it("draws an arbitrary corridor and supports undo and redo", () => {
+    render(<Editor />);
+    const svg = canvas();
+    fireEvent.click(screen.getByRole("button", { name: "Коридор" }));
+    for (const [clientX, clientY] of [
+      [20, 20],
+      [200, 20],
+      [150, 80],
+      [20, 80],
+    ])
+      fireEvent.click(svg, { clientX, clientY });
+    fireEvent.click(screen.getByRole("button", { name: "Завершить фигуру" }));
+    expect(
+      JSON.parse(screen.getByTestId("document").textContent!).shapes[0].points,
+    ).toHaveLength(4);
+    fireEvent.click(screen.getByRole("button", { name: "Отменить правку" }));
+    expect(
+      JSON.parse(screen.getByTestId("document").textContent!).shapes,
+    ).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Повторить правку" }));
+    expect(
+      JSON.parse(screen.getByTestId("document").textContent!).shapes,
+    ).toHaveLength(1);
   });
-
-  it('adds POI on SVG click in add_poi mode', () => {
-    render(<PlanEditor {...mockProps} />);
-
-    const svg = document.querySelector('svg');
-    expect(svg).not.toBeNull();
-
-    if (svg) {
-      fireEvent.click(svg, { clientX: 350, clientY: 250 });
-
-      expect(mockProps.onChangeDocument).toHaveBeenCalled();
-      const call = mockProps.onChangeDocument.mock.calls[0][0] as MapDocument;
-      expect(call.pois.length).toBe(1);
-      expect(call.nodes.length).toBe(1);
-      expect(mockProps.onNotify).toHaveBeenCalledWith(expect.stringContaining('добавлена'));
-    }
+  it("uses the saved asset URL for the imported background", async () => {
+    vi.mocked(apiClient.uploadAsset).mockResolvedValue({
+      id: "asset",
+      kind: "plan",
+    } as never);
+    render(<Editor />);
+    fireEvent.change(screen.getByLabelText(/Импорт плана/), {
+      target: {
+        files: [new File(["image"], "plan.png", { type: "image/png" })],
+      },
+    });
+    await waitFor(() =>
+      expect(document.querySelector("image")).toHaveAttribute(
+        "href",
+        "/api/v1/media/asset/full",
+      ),
+    );
   });
-
-  it('adds room shape on click in add_room mode', () => {
-    render(<PlanEditor {...mockProps} />);
-
-    // Switch to add_room tool (assuming button exists)
-    const svg = document.querySelector('svg');
-    if (svg) {
-      // Simulate room creation
-      fireEvent.click(svg, { clientX: 200, clientY: 150 });
-    }
+  it("places a POI inside an existing room while the POI tool is active", () => {
+    render(<Editor />);
+    const svg = canvas();
+    fireEvent.click(screen.getByRole("button", { name: "Комната", exact: true }));
+    for (const [clientX, clientY] of [[20, 20], [200, 20], [200, 200], [20, 200]])
+      fireEvent.click(svg, { clientX, clientY });
+    fireEvent.click(screen.getByRole("button", { name: "Завершить фигуру" }));
+    fireEvent.click(screen.getByRole("button", { name: "Точка POI" }));
+    fireEvent.click(svg.querySelector('polygon')!, { clientX: 100, clientY: 100 });
+    expect(JSON.parse(screen.getByTestId("document").textContent!).pois[0]).toMatchObject({ x: 100, y: 100 });
   });
-
-  it('preserves local plan coordinates on zoom/pan', () => {
-    const docWithPOI: MapDocument = {
-      ...mockDoc,
-      pois: [
-        {
-          id: 'poi-1',
-          title: 'Test POI',
-          category: 'booth',
-          category_label: null,
-          description: '',
-          x: 350,
-          y: 250,
-          nav_node_id: null,
-        },
-      ],
-    };
-
-    const { rerender } = render(<PlanEditor {...mockProps} document={docWithPOI} />);
-
-    // POI should be at the same coordinates after re-render
-    rerender(<PlanEditor {...mockProps} document={docWithPOI} />);
-
-    expect(docWithPOI.pois[0].x).toBe(350);
-    expect(docWithPOI.pois[0].y).toBe(250);
-  });
-
-  it('handles background asset upload', async () => {
-    const mockAsset = {
-      id: 'asset-123',
-      kind: 'plan' as const,
-      source: 'upload' as const,
-      width_px: 1920,
-      height_px: 1080,
-      projection: null,
-      haov_deg: null,
-      vaov_deg: null,
-      v_offset_deg: null,
-      preview_url: '/media/asset-123/preview',
-      mobile_url: '/media/asset-123/mobile',
-      full_url: '/media/asset-123/full',
-      created_at: '2026-01-01T00:00:00Z',
-    };
-
-    vi.mocked(apiClient.uploadAsset).mockResolvedValue(mockAsset);
-
-    render(<PlanEditor {...mockProps} />);
-
-    const fileInput = document.querySelector('input[type="file"]');
-    expect(fileInput).not.toBeNull();
-
-    if (fileInput) {
-      const file = new File(['dummy'], 'plan.png', { type: 'image/png' });
-      Object.defineProperty(fileInput, 'files', {
-        value: [file],
-        writable: false,
-      });
-
-      fireEvent.change(fileInput);
-
-      await waitFor(() => {
-        expect(apiClient.uploadAsset).toHaveBeenCalledWith('map-123', {
-          kind: 'plan',
-          file: expect.any(File),
-        });
-      });
-    }
-  });
-
-  it('supports all POI categories including custom', () => {
-    const customDoc: MapDocument = {
-      ...mockDoc,
-      pois: [
-        {
-          id: 'poi-custom',
-          title: 'Custom POI',
-          category: 'custom',
-          category_label: 'Зона отдыха',
-          description: '',
-          x: 100,
-          y: 100,
-          nav_node_id: null,
-        },
-      ],
-    };
-
-    render(<PlanEditor {...mockProps} document={customDoc} />);
-    expect(customDoc.pois[0].category).toBe('custom');
-    expect(customDoc.pois[0].category_label).toBe('Зона отдыха');
-  });
-
-  it('creates graph nodes and edges automatically with POI', () => {
-    const docWithNode: MapDocument = {
-      ...mockDoc,
-      nodes: [{ id: 'node-1', x: 100, y: 100 }],
-    };
-
-    render(<PlanEditor {...mockProps} document={docWithNode} />);
-
-    const svg = document.querySelector('svg');
-    if (svg) {
-      fireEvent.click(svg, { clientX: 300, clientY: 300 });
-
-      const call = mockProps.onChangeDocument.mock.calls[0][0] as MapDocument;
-      expect(call.nodes.length).toBe(2); // Original + new
-      expect(call.edges.length).toBe(1); // Auto-connected
-    }
-  });
-
-  it('handles non-standard plan dimensions', () => {
-    const narrowProps = {
-      ...mockProps,
-      widthUnits: 300,
-      heightUnits: 900,
-    };
-
-    render(<PlanEditor {...narrowProps} />);
-
-    const svg = document.querySelector('svg');
-    expect(svg).not.toBeNull();
-    // Coordinates should be preserved in local units regardless of aspect ratio
-  });
-
-  it('supports mobile touch interactions', () => {
-    render(<PlanEditor {...mockProps} />);
-
-    const svg = document.querySelector('svg');
-    if (svg) {
-      // Simulate touch
-      fireEvent.touchStart(svg, {
-        touches: [{ clientX: 200, clientY: 200 }],
-      });
-
-      // Touch interactions should work similar to mouse
-    }
-  });
-
-  it('deletes POI and cleans up orphan nodes', () => {
-    const docWithPOI: MapDocument = {
-      ...mockDoc,
-      pois: [
-        {
-          id: 'poi-del',
-          title: 'To Delete',
-          category: 'booth',
-          category_label: null,
-          description: '',
-          x: 100,
-          y: 100,
-          nav_node_id: 'node-del',
-        },
-      ],
-      nodes: [{ id: 'node-del', x: 100, y: 100 }],
-    };
-
-    render(<PlanEditor {...mockProps} document={docWithPOI} />);
-
-    // POI deletion logic should remove orphan nodes
-    // (assuming delete button exists in UI)
-  });
-
-  it('saves document and notifies on success', async () => {
-    vi.mocked(mockProps.onSaveDocument).mockResolvedValue(undefined);
-
-    render(<PlanEditor {...mockProps} />);
-
-    // Trigger save action
-    await mockProps.onSaveDocument();
-
-    expect(mockProps.onSaveDocument).toHaveBeenCalled();
+  it("cleans references when removing a graph node and rejects duplicate edges", () => {
+    let doc = emptyMapDocument();
+    doc.nodes = [
+      { id: "a", x: 0, y: 0 },
+      { id: "b", x: 10, y: 10 },
+    ];
+    doc = connectNodes(doc, "b", "a");
+    expect(() => connectNodes(doc, "a", "b")).toThrow("уже соединены");
+    const next = removeSelection(doc, { kind: "nodes", id: "a" });
+    expect(next.edges).toHaveLength(0);
+    expect(next.nodes).toHaveLength(1);
   });
 });
