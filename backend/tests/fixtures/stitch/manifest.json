@@ -1,0 +1,69 @@
+{
+  "series": [
+    {
+      "id": "series_01",
+      "description": "Indoor office space panorama capture",
+      "device": {
+        "type": "smartphone",
+        "make": "Unknown",
+        "model": "Unknown",
+        "os": "Unknown",
+        "capture_date": "2026-10-24T08:13:40Z"
+      },
+      "capture_params": {
+        "total_frames": 16,
+        "angular_step_deg": 22.5,
+        "coverage_horizontal_deg": 360,
+        "orientation": "portrait",
+        "resolution": "1920x2560"
+      },
+      "frames": [
+        {"index": 0, "filename": "photo_1_2026-10-24_08-13-40.jpg", "yaw_deg": 0},
+        {"index": 1, "filename": "photo_2_2026-10-24_08-13-40.jpg", "yaw_deg": 22.5},
+        {"index": 2, "filename": "photo_3_2026-10-24_08-13-40.jpg", "yaw_deg": 45},
+        {"index": 3, "filename": "photo_4_2026-10-24_08-13-40.jpg", "yaw_deg": 67.5},
+        {"index": 4, "filename": "photo_5_2026-10-24_08-13-40.jpg", "yaw_deg": 90},
+        {"index": 5, "filename": "photo_6_2026-10-24_08-13-40.jpg", "yaw_deg": 112.5},
+        {"index": 6, "filename": "photo_7_2026-10-24_08-13-40.jpg", "yaw_deg": 135},
+        {"index": 7, "filename": "photo_8_2026-10-24_08-13-40.jpg", "yaw_deg": 157.5},
+        {"index": 8, "filename": "photo_9_2026-10-24_08-13-40.jpg", "yaw_deg": 180},
+        {"index": 9, "filename": "photo_10_2026-10-24_08-13-40.jpg", "yaw_deg": 202.5},
+        {"index": 10, "filename": "photo_11_2026-10-24_08-13-40.jpg", "yaw_deg": 225},
+        {"index": 11, "filename": "photo_12_2026-10-24_08-13-40.jpg", "yaw_deg": 247.5},
+        {"index": 12, "filename": "photo_13_2026-10-24_08-13-40.jpg", "yaw_deg": 270},
+        {"index": 13, "filename": "photo_14_2026-10-24_08-13-40.jpg", "yaw_deg": 292.5},
+        {"index": 14, "filename": "photo_15_2026-10-24_08-13-40.jpg", "yaw_deg": 315},
+        {"index": 15, "filename": "photo_16_2026-10-24_08-13-40.jpg", "yaw_deg": 337.5}
+      ],
+      "expected_output": {
+        "format": "equirectangular",
+        "aspect_ratio": "2:1",
+        "min_resolution": "4096x2048",
+        "vertical_coverage_deg": 180,
+        "quality_threshold": "acceptable_overlap"
+      },
+      "provenance": {
+        "source": "Real device capture provided by project contributor",
+        "license": "Used with permission for TTKMap testing purposes",
+        "usage": "Integration and stitching algorithm testing only"
+      }
+    }
+  ],
+  "negative_cases": [
+    {
+      "id": "incomplete_series",
+      "description": "Missing frames (only 8 of 16)",
+      "reason": "Insufficient coverage for 360° panorama"
+    },
+    {
+      "id": "duplicate_frames",
+      "description": "Same frame used multiple times",
+      "reason": "Invalid angular progression"
+    },
+    {
+      "id": "unrelated_images",
+      "description": "Photos from different locations",
+      "reason": "Feature matching will fail"
+    }
+  ]
+}
