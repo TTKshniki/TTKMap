@@ -1,7 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
+
 :root {
   color: #1e293b;
-  background: #f8fafc;
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  background: #ffffff;
+  font-family: 'Roboto', ui-sans-serif, system-ui, sans-serif;
   font-synthesis: none;
 }
 
@@ -10,13 +12,24 @@
 }
 
 html, body, #root {
-  height: 100%;
+  min-height: 100%;
   margin: 0;
+  padding: 0;
   min-width: 320px;
 }
 
+html, body {
+  background-color: #ffffff;
+}
+
+.dark body {
+  background-color: #020617;
+  color: #f8fafc;
+}
+
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
+  font-style: normal;
   transition: background-color 0.3s ease, color 0.3s ease;
   overflow-x: hidden;
 }
@@ -27,15 +40,15 @@ body {
 
 /* Custom Scrollbars */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 9999px;
+  border-radius: 4px;
 }
 .dark .custom-scrollbar::-webkit-scrollbar-thumb {
   background: #334155;
@@ -57,13 +70,12 @@ body {
 /* Dash animation for route path */
 @keyframes stroke-dash {
   to {
-    stroke-dashoffset: -40;
+    stroke-dashoffset: -30;
   }
 }
 .animate-route {
-  stroke-dasharray: 8 6;
+  stroke-dasharray: 6;
   animation: stroke-dash 1.2s linear infinite;
-  filter: drop-shadow(0 2px 6px rgba(227, 27, 35, 0.45));
 }
 
 /* Pulse Ring for Selected / Active Markers */
@@ -110,40 +122,16 @@ body {
   }
 }
 
-@keyframes ttk-float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-4px); }
-}
-
 .animate-view-enter {
-  animation: ttk-fade-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ttk-fade-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-modal-enter {
-  animation: ttk-scale-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ttk-scale-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-toast-enter {
   animation: ttk-toast-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.animate-float {
-  animation: ttk-float 3s ease-in-out infinite;
-}
-
-/* Tactile button & card interactions */
-button {
-  transition: transform 0.15s ease, background-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-}
-button:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.card-interactive {
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
-}
-.card-interactive:hover {
-  transform: translateY(-3px);
 }
 
 /* Responsive Map Stage Container */
@@ -153,19 +141,13 @@ button:active:not(:disabled) {
   max-width: 760px;
 }
 
-/* Dark theme overrides */
-.dark body {
-  background-color: #0f172a;
-  color: #f8fafc;
-}
-
 /* Fallback Brand Colors if CDN is offline */
 .bg-brand-50 { background-color: #fef2f2; }
 .bg-brand-100 { background-color: #fee2e2; }
-.bg-brand-500 { background-color: #ef4444; }
+.bg-brand-500 { background-color: #dc2626; }
 .bg-brand-600 { background-color: #E31B23; }
 .hover\:bg-brand-700:hover { background-color: #b91c1c; }
-.text-brand-500 { color: #ef4444; }
+.text-brand-500 { color: #dc2626; }
 .text-brand-600 { color: #E31B23; }
 .border-brand-600 { border-color: #E31B23; }
 .ring-brand-600 { --tw-ring-color: #E31B23; }

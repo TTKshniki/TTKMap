@@ -256,6 +256,117 @@ export const Icon: React.FC<IconProps> = ({ name, className = 'w-4 h-4' }: IconP
           <line x1="15.41" x2="8.59" y1="6.51" y2="10.49" />
         </svg>
       );
+    case 'search':
+      return (
+        <svg {...props}>
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.3-4.3" />
+        </svg>
+      );
+    case 'chevron-left':
+      return (
+        <svg {...props}>
+          <path d="m15 18-6-6 6-6" />
+        </svg>
+      );
+    case 'chevron-right':
+      return (
+        <svg {...props}>
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+      );
+    case 'bookmark':
+      return (
+        <svg {...props}>
+          <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+        </svg>
+      );
+    case 'monitor':
+      return (
+        <svg {...props}>
+          <rect width="20" height="14" x="2" y="3" rx="2" />
+          <line x1="8" x2="16" y1="21" y2="21" />
+          <line x1="12" x2="12" y1="17" y2="21" />
+        </svg>
+      );
+    case 'activity':
+      return (
+        <svg {...props}>
+          <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
+        </svg>
+      );
+    case 'navigation':
+      return (
+        <svg {...props}>
+          <polygon points="3 11 22 2 13 21 11 13 3 11" />
+        </svg>
+      );
+    case 'square':
+      return (
+        <svg {...props}>
+          <rect width="18" height="18" x="3" y="3" rx="2" />
+        </svg>
+      );
+    case 'ruler':
+      return (
+        <svg {...props}>
+          <path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z" />
+          <path d="m14.5 12.5 2-2" />
+          <path d="m11.5 9.5 2-2" />
+          <path d="m8.5 6.5 2-2" />
+          <path d="m17.5 15.5 2-2" />
+        </svg>
+      );
+    case 'app-window':
+      return (
+        <svg {...props}>
+          <rect x="2" y="4" width="20" height="16" rx="2" />
+          <path d="M10 4v4" />
+          <path d="M2 8h20" />
+          <path d="M6 4v4" />
+        </svg>
+      );
+    case 'box':
+      return (
+        <svg {...props}>
+          <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+          <path d="m3.3 7 8.7 5 8.7-5" />
+          <path d="M12 22V12" />
+        </svg>
+      );
+    case 'layers':
+      return (
+        <svg {...props}>
+          <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
+          <path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" />
+          <path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" />
+        </svg>
+      );
+    case 'coffee':
+      return (
+        <svg {...props}>
+          <path d="M10 2v2" />
+          <path d="M14 2v2" />
+          <path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" />
+          <path d="M6 2v2" />
+        </svg>
+      );
+    case 'utensils':
+      return (
+        <svg {...props}>
+          <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
+          <path d="M7 2v20" />
+          <path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
+        </svg>
+      );
+    case 'cpu':
+      return (
+        <svg {...props}>
+          <rect width="16" height="16" x="4" y="4" rx="2" />
+          <rect width="6" height="6" x="9" y="9" rx="1" />
+          <path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2" />
+        </svg>
+      );
     default:
       return (
         <svg {...props}>
