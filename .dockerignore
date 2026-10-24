@@ -12,3 +12,8 @@ data
 .env
 __pycache__
 .pytest_cache
+
+photos
+Update Design
+frontend/test-results
+frontend/playwright-report

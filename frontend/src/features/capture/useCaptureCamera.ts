@@ -80,5 +80,5 @@ export function useCaptureCamera() {
     if (!streamRef.current) return Promise.reject(new Error('Камера остановилась. Откройте её снова.'));
     return encodeVideoFrame(videoRef.current, index);
   }, []);
-  return { support, ready, error, start, stop, bindVideo, updateReady, capture };
+  return { active: streamRef.current !== null, support, ready, error, start, stop, bindVideo, updateReady, capture };
 }

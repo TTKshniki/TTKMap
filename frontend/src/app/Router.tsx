@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { matchRoute, type RouteMatch } from '../shared/router';
+import { confirmNavigation, matchRoute, type RouteMatch } from '../shared/router';
 import type React from 'react';
 
 export interface Route {
@@ -17,9 +17,34 @@ export function Router({ routes, fallback }: RouterProps) {
   const [location, setLocation] = useState(() => window.location.pathname);
 
   useEffect(() => {
-    const handlePopState = () => setLocation(window.location.pathname);
+    if (typeof window.history.state?.ttkIndex !== 'number') {
+      window.history.replaceState({ ...window.history.state, ttkIndex: 0 }, '');
+    }
+    let acceptedIndex = window.history.state.ttkIndex as number;
+    let acceptedPath = window.location.pathname;
+    let restoring = false;
+    const accept = () => {
+      acceptedIndex = window.history.state?.ttkIndex ?? 0;
+      acceptedPath = window.location.pathname;
+      setLocation(acceptedPath);
+    };
+    const handlePopState = () => {
+      if (restoring) { restoring = false; return; }
+      if (confirmNavigation()) { accept(); return; }
+      const targetIndex = window.history.state?.ttkIndex;
+      if (typeof targetIndex === 'number' && targetIndex !== acceptedIndex) {
+        restoring = true;
+        window.history.go(acceptedIndex - targetIndex);
+      } else {
+        window.history.pushState({ ttkIndex: acceptedIndex }, '', acceptedPath);
+      }
+    };
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('ttk:navigate', accept);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('ttk:navigate', accept);
+    };
   }, []);
 
   for (const route of routes) {

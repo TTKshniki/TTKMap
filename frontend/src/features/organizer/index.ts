@@ -1,2 +1,3 @@
-export { AdminView, AuthView, CabinetView } from './OrganizerDashboard';
-export type { AdminViewProps, AuthViewProps, CabinetViewProps, UserProfile } from './OrganizerDashboard';
+export { LoginPage } from "./LoginPage";
+export { MapList } from "./MapList";
+export { OrganizerWorkspace } from "./OrganizerWorkspace";

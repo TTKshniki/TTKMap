@@ -1,62 +1,23 @@
 # TTKMap Frontend
 
-React + TypeScript interface for organizers and visitors.
+React/TypeScript/Vite. Общие DTO генерируются из `CONTRACTS/openapi.yaml` в `CONTRACTS/types.ts`.
 
-## Structure
+`App.tsx` связывает Router и страницы. `/login` получает серверную cookie-сессию; `/organize` и `/organize/:mapId` проверяют её. Публичные `/m/:slug` и `/embed/:slug` используют один `PublicSpacePage`.
 
-- `src/app/` — top-level app shell, router, layout
-- `src/shared/` — API client, coordinates, geometry, routing, conflict resolution
-- `src/features/` — feature modules (organizer, plan editor, panorama viewer, visitor)
+- `features/organizer/useWorkspace.ts` владеет серверной revision, локальным draft, assets и сохранением. Ответ 412 сохраняет локальные правки; изменения во время save не затираются. Перед уходом с изменённой карты есть подтверждение.
+- `features/plan` содержит SVG редактор, операции документа и inspector. Координаты преобразуются обратной screen CTM; подложка одинакова в редакторе, picker и public view.
+- `features/capture` разделяет поток камеры, pending frame в IndexedDB, capture session и polling результата. `captureFrame` используется только как тестовый seam; восстановление файлов работает без него.
+- `features/panorama` загружает Pannellum отдельным chunk и использует измеренные `vaov_deg`/`v_offset_deg`. Отсутствующее медиа показывается ошибкой.
+- `shared/api.ts` экспортирует `apiClient`; CSRF хранится в памяти. Публикация и logout подтверждаются ответом сервера.
 
-## Key Modules
+Команды из корня (Node 22.12+):
 
-### API Client (`shared/api.ts`)
-
-Typed client for all OpenAPI endpoints. Handles CSRF tokens in memory, ETag/If-Match for optimistic concurrency, and structured error responses.
-
-```typescript
-const client = new ApiClient();
-await client.login(email, password);
-const maps = await client.listMaps();
+```sh
+npm --prefix frontend ci
+npm --prefix frontend run dev
+npm --prefix frontend run test
+npm --prefix frontend run build
+npm --prefix frontend run test:e2e
 ```
 
-### Conflict Resolution (`shared/conflicts.ts`)
-
-Preserves local changes on 412 VERSION_CONFLICT. Stores drafts in sessionStorage.
-
-```typescript
-const handler = preserveLocalChanges(localDoc, (local, serverRevision) => {
-  saveDraft({ mapId, document: local, baseRevision: serverRevision, timestamp: Date.now() });
-  showConflictDialog();
-});
-await handler(() => client.saveMapDocument(mapId, doc, revision));
-```
-
-### Coordinates (`shared/coordinates.ts`)
-
-Plan uses local units with `(0,0)` at upper-left, X right, Y down. Panorama yaw is `[-180,180)` degrees, pitch `[-90,90]`.
-
-### Geometry (`shared/geometry.ts`)
-
-Distance, bounding box, polygon area/centroid, point-in-polygon tests.
-
-### Router (`shared/router.ts`, `app/Router.tsx`)
-
-Minimal pattern-based router with dynamic segments and accessible navigation.
-
-## Development
-
-```bash
-npm install
-npm run dev    # starts dev server on :5173 with /api proxy to :8000
-npm run test   # runs vitest
-npm run build  # production build
-```
-
-## Accessibility
-
-- Skip-to-content link on every page
-- Semantic HTML and ARIA landmarks
-- Keyboard navigation
-- Focus management in modals
-- WCAG 2.1 AA contrast (slate base, sky/orange accents)
+Для Vite `APP_ORIGIN` backend должен совпадать с адресом frontend (`http://127.0.0.1:5173`); API proxy идёт на порт 8000. Production frontend собирается в Docker вместе с локальным CSS. E2E требует Docker и Chromium Playwright; рабочие данные не затрагиваются. Реальные физические устройства принимаются отдельно: `docs/acceptance.md`.

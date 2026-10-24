@@ -1,11 +1,1 @@
-# Lock generation tool; install in an isolated CPython 3.12 Linux environment.
-# Run from the repository root:
-#   python -m pip install -r backend/requirements-lock-tool.txt
-#   python -m piptools compile --resolver=backtracking --generate-hashes \
-#       --strip-extras --no-emit-index-url --no-emit-trusted-host \
-#       --output-file=backend/requirements.lock backend/requirements.txt
-# Repeat on Linux amd64 and arm64 and compare the generated requirements.lock.
-# Keep requirements.txt as the source of the direct application dependencies.
-# Do not install this tooling file in the runtime image.
-pip==24.0
-pip-tools==7.4.1
+pip-tools==7.6.2

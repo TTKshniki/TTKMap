@@ -64,7 +64,7 @@ export function pickPanoramaAsset(panorama: Panorama | null | undefined, assets:
   if (!panorama) return null;
   const byId = assets.find((asset) => asset.id === panorama.asset_id);
   if (byId) return byId;
-  return assets.find((asset) => asset.kind === 'panorama') ?? null;
+  return null;
 }
 
 /**

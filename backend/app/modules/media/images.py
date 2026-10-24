@@ -23,21 +23,24 @@ def make_variants(
             with Image.open(BytesIO(raw)) as image:
                 if image.format not in {"JPEG", "PNG", "WEBP"}:
                     raise InvalidImage("Only JPEG, PNG and WebP are accepted")
+                if image.width > 8192 or image.height > 8192 or image.width * image.height > 40_000_000:
+                    raise InvalidImage("Image dimensions exceed the limit")
                 image.verify()
             with Image.open(BytesIO(raw)) as image:
                 image = ImageOps.exif_transpose(image)
                 image.load()
-                if image.width > 4096 or image.height > 4096:
+                if image.width > 8192 or image.height > 8192 or image.width * image.height > 40_000_000:
                     raise InvalidImage("Image dimensions exceed the limit")
                 if kind == "panorama":
                     partial = partial_vaov_deg is not None
                     valid_extent = (
-                        image.width <= 4096 and 40 <= partial_vaov_deg <= 180
+                        image.width <= 8192 and 40 <= partial_vaov_deg <= 180
                         and abs(image.height - image.width * partial_vaov_deg / 360) <= 1.5
                     ) if partial else image.width == image.height * 2
-                    if not valid_extent or image.width > 4096 or image.height > 4096:
+                    if not valid_extent:
                         expected = "a measured partial panorama" if partial else "equirectangular 2:1"
                         raise InvalidImage(f"Panorama must be {expected} and at most 4096 pixels")
+                image.thumbnail((4096, 4096), Image.Resampling.LANCZOS)
                 width, height = image.size
                 if kind == "plan" and ("A" in image.getbands() or "transparency" in image.info):
                     rgba = image.convert("RGBA")

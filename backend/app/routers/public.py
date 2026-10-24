@@ -7,7 +7,7 @@ from fastapi import APIRouter, Header, Response
 
 from backend.app.db import database, transaction
 from backend.app.errors import ApiError
-from backend.app.routers.maps import _snapshot
+from backend.app.modules.maps.snapshots import _snapshot
 from backend.app.schemas import RouteRequest
 
 

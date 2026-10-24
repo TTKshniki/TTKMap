@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AssetRef, Capture } from '../../../../CONTRACTS/types';
 import { apiClient } from '../../shared/api';
-import { clearSession } from './session';
 
 interface CaptureJobOptions {
   mapId: string | null;
@@ -51,7 +50,8 @@ export function useCaptureJob({ mapId, capture, pollMs, onUpdate, onReady }: Cap
             if (!asset) throw new Error('Готовая панорама пока недоступна.');
             callbacks.current.onReady(asset, current);
             delivered.current.add(assetId);
-            clearSession(mapId);
+            // Keep the ID until the next capture starts. A reload before the
+            // organizer saves the map must be able to re-import this result.
           }
           setImportedAssetId(assetId);
           setError(null);

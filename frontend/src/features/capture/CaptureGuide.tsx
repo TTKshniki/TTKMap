@@ -10,6 +10,7 @@ import {
 } from './guide';
 import { clearSession, loadSession, saveSession } from './session';
 import { useCaptureCamera } from './useCaptureCamera';
+import { storePendingFrame, loadPendingFrame, clearPendingFrame } from './pendingFrameStore';
 import { useCaptureJob } from './useCaptureJob';
 import './capture.css';
 
@@ -45,6 +46,7 @@ function CaptureGuideSession({
   const [activeCapture, setActiveCapture] = useState<Capture | null>(null);
   const [pendingFrame, setPendingFrame] = useState<PendingFrame | null>(null);
   const [uploadFailed, setUploadFailed] = useState(false);
+  const [durableFrame, setDurableFrame] = useState(true);
   const [busy, setBusy] = useState(false);
   const [headingDeg, setHeadingDeg] = useState<number | null>(null);
   const [orientationGranted, setOrientationGranted] = useState(false);
@@ -102,7 +104,7 @@ function CaptureGuideSession({
     let disposed = false;
     setRestoring(true);
     setRestoreError(null);
-    void apiClient.getCapture(mapId, storedSession.captureId).then((restored) => {
+    void apiClient.getCapture(mapId, storedSession.captureId).then(async (restored) => {
       if (disposed) return;
       setActiveCapture(restored);
       setTitle(restored.title);
@@ -112,6 +114,12 @@ function CaptureGuideSession({
         setPhase('queued');
       }
       if (restored.state === 'collecting') {
+        const pending = await loadPendingFrame(mapId);
+        if (disposed) return;
+        if (pending && pending.captureId === restored.id) {
+          setPendingFrame({ ...pending, url: URL.createObjectURL(pending.file) });
+          setPhase('reviewing');
+        }
         pushNotice(`Сессия восстановлена: ${restored.frames.length}/${TOTAL_FRAMES} кадров уже загружено`);
       }
     }).catch((error: unknown) => {
@@ -202,7 +210,9 @@ function CaptureGuideSession({
       // The request may finish after navigation. Keep the server session
       // discoverable when this map is opened again, without updating the old UI.
       saveSession(mapId, { captureId: capture.id, mapId, title: capture.title, x: capture.x, y: capture.y });
+      const persisted = await storePendingFrame({ mapId, captureId: capture.id, index, file });
       if (!alive.current) return;
+      setDurableFrame(persisted);
       setActiveCapture(capture);
       setPendingFrame({ captureId: capture.id, index, file, url: URL.createObjectURL(file) });
       setUploadFailed(false);
@@ -211,11 +221,13 @@ function CaptureGuideSession({
   }
 
   function retakeFrame() {
-    if (busyRef.current) return;
-    setPendingFrame(null);
-    setUploadFailed(false);
-    setPhase('capturing');
-    pushNotice('Кадр отменён: снимите его заново с тем же ориентиром');
+    void runAction(async () => {
+      if (mapId) await clearPendingFrame(mapId);
+      if (!alive.current) return;
+      setPendingFrame(null); setUploadFailed(false); setPhase('capturing');
+      if (!camera.active) { const started = await camera.start(); if (!alive.current) return; if (!started) setPhase('idle'); }
+      pushNotice('Кадр отменён: снимите его заново с тем же ориентиром');
+    });
   }
 
   async function submitStitch(capture: Capture) {
@@ -243,10 +255,12 @@ function CaptureGuideSession({
         throw error;
       }
       if (!alive.current) return;
+      await clearPendingFrame(mapId);
+      if (!alive.current) return;
       setActiveCapture(updated);
       setPendingFrame(null);
       setUploadFailed(false);
-      setPhase('capturing');
+      setPhase(camera.active || captureFrame ? 'capturing' : 'idle');
       if (updated.frames.length === TOTAL_FRAMES) {
         await submitStitch(updated);
       } else {
@@ -265,7 +279,7 @@ function CaptureGuideSession({
       setPendingFrame(null);
       setActiveCapture(cancelled);
       setPhase('idle');
-      if (mapId) clearSession(mapId);
+      if (mapId) { clearSession(mapId); await clearPendingFrame(mapId); }
       pushNotice('Сессия съёмки отменена');
     });
   }
@@ -354,6 +368,7 @@ function CaptureGuideSession({
         </div>
       )}
 
+      {!durableFrame && pendingFrame && <p role="status">Хранилище браузера недоступно. Не закрывайте вкладку до загрузки кадра.</p>}
       {restoring && <p role="status">Восстанавливаем сессию съёмки…</p>}
       {restoreError && (
         <div role="alert" className="ttk-capture-guide__notice ttk-capture-guide__notice--error">

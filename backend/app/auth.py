@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import secrets
 import threading
@@ -18,7 +17,7 @@ from backend.app.errors import ApiError
 
 
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from argon2.exceptions import VerificationError, InvalidHashError
 
 _LOGIN_WINDOW_SECONDS = 60.0
 _LOGIN_MAX_FAILURES = 5
@@ -47,22 +46,33 @@ def _prune_failures(key: str, now: float) -> list[float]:
     return recent
 
 
-def check_login_rate_limit(client_ip: str, email: str) -> None:
+def check_login_rate_limit(client_ip: str, email: str) -> float:
     now = time.monotonic()
     ip_key = f"ip:{client_ip}"
     email_key = f"email:{email.strip().lower()}"
     with _login_lock:
+        for key in list(_login_failures):
+            _prune_failures(key, now)
+        if len(_login_failures) > 10000:
+            raise ApiError(429, 'RATE_LIMITED', 'Please try again later')
         if len(_prune_failures(ip_key, now)) >= _LOGIN_MAX_FAILURES or len(_prune_failures(email_key, now)) >= _LOGIN_MAX_FAILURES:
-            raise ApiError(429, "RATE_LIMITED", "Too many failed login attempts, please try again later")
+            raise ApiError(429, "RATE_LIMITED", "Too many login attempts, please try again later")
+        for key in (ip_key, email_key):
+            _login_failures[key].append(now)
+    return now
 
 
-def record_login_failure(client_ip: str, email: str) -> None:
-    now = time.monotonic()
+def release_successful_login(client_ip: str, email: str, reservation: float) -> None:
+    """Release only this successful attempt; retain concurrent failures."""
     with _login_lock:
-        for key in (f"ip:{client_ip}", f"email:{email.strip().lower()}"):
-            recent = _prune_failures(key, now)
-            recent.append(now)
-            _login_failures[key] = recent
+        for key in (f'ip:{client_ip}', f'email:{email.strip().lower()}'):
+            recent = list(_login_failures.get(key, []))
+            if reservation in recent:
+                recent.remove(reservation)
+            if recent:
+                _login_failures[key] = recent
+            else:
+                _login_failures.pop(key, None)
 
 
 def verify_login_password(password_hash: str | None, password: str) -> bool:
@@ -82,7 +92,7 @@ def verify_password(password_hash: str, password: str) -> bool:
     try:
         _ph.verify(password_hash, password)
         return True
-    except (VerifyMismatchError, ValueError):
+    except (VerificationError, InvalidHashError, ValueError):
         return False
 
 
@@ -109,7 +119,7 @@ def _session_row(raw_token: str | None):
     with database() as connection:
         return connection.execute(
             "SELECT s.*, u.email, u.role FROM sessions s JOIN users u ON u.id=s.user_id "
-            "WHERE s.token_hash=? AND s.expires_at>strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "WHERE s.token_hash=? AND julianday(s.expires_at)>julianday('now')",
             (_token_hash(raw_token),),
         ).fetchone()
 

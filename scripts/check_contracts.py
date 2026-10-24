@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import re
 import sqlite3
 from pathlib import Path
@@ -129,4 +130,6 @@ if __name__ == "__main__":
     check_openapi()
     check_schema()
     check_task_graph()
+    assert (ROOT / 'TASKS/WORKPLAN.md').read_text() == runpy.run_path(str(ROOT / 'scripts/render_workplan.py'))['render'](), 'WORKPLAN drift'
+    assert (ROOT / 'CONTRACTS/types.ts').read_text() == runpy.run_path(str(ROOT / 'scripts/generate_types.py'))['generate'](), 'DTO drift'
     print("TTKMap contracts, SQLite schema and task graph are valid")

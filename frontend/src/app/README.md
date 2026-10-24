@@ -1,11 +1,5 @@
-# App shell ownership
+# Маршруты и состояние
 
-The frontend-core owner owns routing, authentication state, shared API client and `App.tsx`. Feature agents add screens under `src/features/<feature>/` and export them through `index.ts`; they do not edit this shell or duplicate contract types.
+`App.tsx` собирает маршруты: `/`, `/login`, `/organize`, `/organize/:mapId`, `/m/:slug`, `/embed/:slug`. `/edit` оставлен как вход в список карт после проверки сессии.
 
-## Routing convention
-
-- `/` — landing or organizer dashboard when authenticated
-- `/login` — organizer login
-- `/organize/:mapId` — organizer editor workspace
-- `/m/:slug` — public visitor map
-- `/embed/:slug` — embeddable public map (minimal chrome)
+`OrganizerSession` проверяет реальную серверную сессию. Workspace владеет draft, saved revision, ETag и asset registry. `useWorkspace` обрабатывает 412 и изменения во время save. PlanEditor, CaptureGuide и PanoramaViewer не сохраняют собственную независимую копию карты.

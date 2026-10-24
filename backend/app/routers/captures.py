@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from fastapi.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, Header, Request, Response
 
 from backend.app.auth import require_csrf, require_origin, require_session
@@ -13,10 +14,11 @@ from backend.app.modules.capture.service import (
     capture_dto,
     get_owned_capture,
     store_capture_frame,
+    prepare_capture_frame,
     submit_stitch,
 )
 from backend.app.modules.capture.uploads import read_frame_upload
-from backend.app.routers.maps import _owned_map
+from backend.app.modules.maps.snapshots import _owned_map
 from backend.app.schemas import CreateCaptureRequest
 
 
@@ -93,12 +95,26 @@ async def put_capture_frame(
     # Recheck inside the writer transaction after the potentially slow body read.
     with database() as connection:
         get_owned_capture(connection, map_id, capture_id, row["user_id"])
-    raw_bytes = await read_frame_upload(request)
+    async with request.app.state.media_slots:
+        raw_bytes = await read_frame_upload(request)
+        return await run_in_threadpool(_store_frame, map_id, capture_id, row['user_id'], index, raw_bytes)
 
+
+def _store_frame(map_id, capture_id, owner_id, index, raw_bytes):
+    prepared = None
+    storage_key = None
     with database() as connection:
+        capture_row = get_owned_capture(connection, map_id, capture_id, owner_id)
+        if not 0 <= index <= 15:
+            raise ApiError(422, 'VALIDATION_ERROR', 'Frame index must be 0..15')
+        if capture_row['state'] == 'collecting':
+            try:
+                prepared, storage_key = prepare_capture_frame(capture_id, index, raw_bytes)
+            except ValueError as exc:
+                raise ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', str(exc)) from exc
         with transaction(connection, immediate=True):
-            capture_row = get_owned_capture(connection, map_id, capture_id, row["user_id"])
-            return store_capture_frame(connection, capture_row, index, raw_bytes)
+            capture_row = get_owned_capture(connection, map_id, capture_id, owner_id)
+            return store_capture_frame(connection, capture_row, index, raw_bytes, prepared, storage_key)
 
 
 @router.post("/{capture_id}/stitch")

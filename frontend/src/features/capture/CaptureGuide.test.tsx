@@ -421,6 +421,7 @@ describe('CaptureGuide', () => {
     expect(container.querySelector('video')).toBe(video);
     fireEvent.click(screen.getByRole('button', { name: 'Переснять' }));
     expect(video.srcObject).toBe(cameraStream);
+    await awaitCapturing(1);
     fireEvent.click(screen.getByRole('button', { name: 'Снять кадр 1' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Оставить кадр' }));
     await awaitCapturing(2);
@@ -523,7 +524,7 @@ describe('CaptureGuide', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Получить готовую панораму' }));
     await waitFor(() => expect(props.onPanoramaAssetReady).toHaveBeenCalledTimes(1));
     expect(props.onPanoramaAssetReady).toHaveBeenCalledWith(resultAsset, succeeded.title, succeeded.x, succeeded.y);
-    expect(localStorage.getItem('ttkmap.capture.map-1')).toBeNull();
+    expect(localStorage.getItem('ttkmap.capture.map-1')).not.toBeNull();
     rerender(<CaptureGuide {...props} onNotify={vi.fn()} />);
     expect(props.onPanoramaAssetReady).toHaveBeenCalledTimes(1);
   });
