@@ -1,4 +1,4 @@
-# TTKMap — Карта пространства
+# TTKMap — Карта пространства.
 
 TTKMap is the TTK hackathon product for creating and exploring indoor space maps with POIs, panoramas and graph routes. The repository now contains the shared implementation foundation for autonomous backend and frontend agents.
 
