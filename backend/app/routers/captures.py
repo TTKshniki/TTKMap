@@ -15,7 +15,7 @@ from backend.app.modules.capture.service import (
     store_capture_frame,
     submit_stitch,
 )
-from backend.app.modules.media.storage import FRAME_MAX_BYTES, parse_multipart_fields
+from backend.app.modules.capture.uploads import read_frame_upload
 from backend.app.routers.maps import _owned_map
 from backend.app.schemas import CreateCaptureRequest
 
@@ -89,15 +89,16 @@ async def put_capture_frame(
     row=Depends(require_session),
 ):
     require_csrf(row, csrf_token)
-    fields = await parse_multipart_fields(request, FRAME_MAX_BYTES)
-    file_entry = fields.get("file")
-    if file_entry is None:
-        raise ApiError(422, "VALIDATION_ERROR", "Multipart field 'file' is required")
+    # Reject foreign nested resources before reading/decoding their upload.
+    # Recheck inside the writer transaction after the potentially slow body read.
+    with database() as connection:
+        get_owned_capture(connection, map_id, capture_id, row["user_id"])
+    raw_bytes = await read_frame_upload(request)
 
     with database() as connection:
         with transaction(connection, immediate=True):
             capture_row = get_owned_capture(connection, map_id, capture_id, row["user_id"])
-            return store_capture_frame(connection, capture_row, index, file_entry[1])
+            return store_capture_frame(connection, capture_row, index, raw_bytes)
 
 
 @router.post("/{capture_id}/stitch")

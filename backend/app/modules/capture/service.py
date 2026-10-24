@@ -9,8 +9,9 @@ from uuid import uuid4
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from backend.app.config import settings
+from backend.app.db import transaction
 from backend.app.errors import ApiError
-from backend.app.modules.media.storage import FRAME_MAX_BYTES, AssetStore, inspect_image_bytes
+from backend.app.modules.media.storage import FRAME_MAX_BYTES, AssetStore
 
 
 def _now() -> str:
@@ -26,20 +27,20 @@ def normalize_frame(raw: bytes) -> tuple[bytes, int, int, str]:
             with Image.open(BytesIO(raw)) as image:
                 if image.format not in {"JPEG", "PNG", "WEBP"}:
                     raise ValueError("Only JPEG, PNG and WebP frames are accepted")
+                if image.width > 1600 or image.height > 1600:
+                    raise ValueError("Frame dimensions must not exceed 1600 pixels")
                 image.verify()
             with Image.open(BytesIO(raw)) as image:
                 image = ImageOps.exif_transpose(image)
                 image.load()
-                if image.width > 1600 or image.height > 1600:
-                    raise ValueError("Frame dimensions must not exceed 1600 pixels")
                 image = image.convert("RGB")
                 width, height = image.size
                 output = BytesIO()
                 image.save(output, format="JPEG", quality=90, optimize=True)
                 return output.getvalue(), width, height, digest
-    except (ValueError, Image.DecompressionBombError):
+    except ValueError:
         raise
-    except (OSError, UnidentifiedImageError, Image.DecompressionBombWarning) as exc:
+    except (OSError, UnidentifiedImageError, Image.DecompressionBombWarning, Image.DecompressionBombError) as exc:
         raise ValueError("Frame cannot be decoded safely") from exc
 
 
@@ -92,25 +93,29 @@ def store_capture_frame(connection, capture_row, index: int, raw_bytes: bytes) -
         raise ApiError(422, "VALIDATION_ERROR", "Frame index must be between 0 and 15", issues=[{"path": "index", "message": "Must be 0..15"}])
 
     capture_id = capture_row["id"]
-    try:
-        normalized, width, height, digest = normalize_frame(raw_bytes)
-    except ValueError as exc:
-        raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", str(exc)) from exc
+    if len(raw_bytes) > FRAME_MAX_BYTES:
+        raise ApiError(413, "MEDIA_TOO_LARGE", "Uploaded frame exceeds maximum allowed size")
+
+    digest = hashlib.sha256(raw_bytes).hexdigest()
     existing = connection.execute(
         "SELECT sha256,storage_key,width_px,height_px FROM capture_frames WHERE capture_id=? AND frame_index=?",
         (capture_id, index),
     ).fetchone()
-
     if existing is not None and existing["sha256"] == digest:
         return capture_dto(connection, capture_row)
-
     if capture_row["state"] != "collecting":
         raise ApiError(409, "CONFLICT", "Capture frames are sealed after stitch submission")
 
+    try:
+        normalized, width, height, digest = normalize_frame(raw_bytes)
+    except ValueError as exc:
+        raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", str(exc)) from exc
     if len(normalized) > FRAME_MAX_BYTES:
         raise ApiError(413, "MEDIA_TOO_LARGE", "Normalized frame exceeds maximum allowed size")
 
-    storage_key = f"captures/{capture_id}/frame-{index:02d}.bin"
+    # Never overwrite the committed frame before its DB replacement commits.
+    # Rollback/crash may leave an unreferenced file, but preserves the old slot.
+    storage_key = f"captures/{capture_id}/frame-{index:02d}-{digest}.bin"
     store = AssetStore(settings.media_path)
     store.write_atomic(storage_key, normalized)
     now = _now()
@@ -182,12 +187,28 @@ def cancel_capture_job(connection, capture_row) -> dict:
 
 
 def claim_next_capture(connection, lease_seconds: int = 120):
+    """Claim/recover durably; callers may include this in an IMMEDIATE transaction.
+
+    Without a caller transaction we acquire the writer lock before selecting a
+    job. Existing callers must likewise use BEGIN IMMEDIATE, never a deferred
+    read transaction, when combining a claim with other queue operations.
+    """
+    if not isinstance(lease_seconds, int) or lease_seconds <= 0:
+        raise ValueError("lease_seconds must be a positive integer")
+    if not connection.in_transaction:
+        with transaction(connection, immediate=True):
+            return _claim_next_capture(connection, lease_seconds)
+    return _claim_next_capture(connection, lease_seconds)
+
+
+def _claim_next_capture(connection, lease_seconds: int):
     now_dt = datetime.now(timezone.utc)
     now = now_dt.isoformat().replace("+00:00", "Z")
     expires = (now_dt + timedelta(seconds=lease_seconds)).isoformat().replace("+00:00", "Z")
 
     expired = connection.execute(
-        "SELECT id,attempt,progress,started_at FROM captures WHERE state='running' AND lease_expires_at<=?",
+        "SELECT id,attempt,progress,started_at FROM captures WHERE state='running' "
+        "AND julianday(lease_expires_at)<=julianday(?)",
         (now,),
     ).fetchall()
     for row in expired:
@@ -205,7 +226,7 @@ def claim_next_capture(connection, lease_seconds: int = 120):
             )
 
     candidate = connection.execute(
-        "SELECT * FROM captures WHERE state='queued' ORDER BY created_at ASC LIMIT 1"
+        "SELECT * FROM captures WHERE state='queued' ORDER BY created_at ASC,id ASC LIMIT 1"
     ).fetchone()
     if candidate is None:
         return None
