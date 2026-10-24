@@ -22,7 +22,7 @@ FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 async def lifespan(_: FastAPI):
     initialize_database()
     settings.media_path.mkdir(parents=True, exist_ok=True)
-    if os.getenv("TTK_AUTO_SEED", "1") == "1" and "pytest" not in sys.modules:
+    if os.getenv("TTK_AUTO_SEED", "0") == "1" and "pytest" not in sys.modules:
         try:
             from scripts.seed_demo import seed_demo_data
             seed_demo_data()

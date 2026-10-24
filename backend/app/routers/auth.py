@@ -4,13 +4,14 @@ from fastapi import APIRouter, Cookie, Depends, Header, Request, Response
 
 from backend.app.auth import (
     check_login_rate_limit,
+    clear_login_failures,
     create_session,
     record_login_failure,
     require_csrf,
     require_origin,
     require_session,
     revoke_session,
-    verify_password,
+    verify_login_password,
 )
 from backend.app.config import settings
 from backend.app.db import database
@@ -39,9 +40,10 @@ def login(payload: LoginRequest, request: Request, response: Response, _: None =
             "SELECT id,email,role,password_hash FROM users WHERE email=?",
             (normalized_email,),
         ).fetchone()
-    if row is None or not verify_password(row["password_hash"], payload.password):
+    if row is None or not verify_login_password(row["password_hash"] if row is not None else None, payload.password):
         record_login_failure(client_ip, normalized_email)
         raise ApiError(401, "INVALID_CREDENTIALS", "Email or password is invalid")
+    clear_login_failures(client_ip, normalized_email)
     token, csrf_token, expires_at = create_session(row["id"])
     response.set_cookie("ttk_session", token, httponly=True, secure=settings.cookie_secure,
                         samesite="lax", max_age=settings.session_ttl_seconds, path="/")

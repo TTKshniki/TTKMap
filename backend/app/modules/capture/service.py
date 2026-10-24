@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import hashlib
+from io import BytesIO
+import warnings
 from uuid import uuid4
+
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from backend.app.config import settings
 from backend.app.errors import ApiError
@@ -11,6 +15,32 @@ from backend.app.modules.media.storage import FRAME_MAX_BYTES, AssetStore, inspe
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def normalize_frame(raw: bytes) -> tuple[bytes, int, int, str]:
+    """Decode, rotate and re-encode a frame so EXIF/GPS metadata is not retained."""
+    digest = hashlib.sha256(raw).hexdigest()
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(raw)) as image:
+                if image.format not in {"JPEG", "PNG", "WEBP"}:
+                    raise ValueError("Only JPEG, PNG and WebP frames are accepted")
+                image.verify()
+            with Image.open(BytesIO(raw)) as image:
+                image = ImageOps.exif_transpose(image)
+                image.load()
+                if image.width > 1600 or image.height > 1600:
+                    raise ValueError("Frame dimensions must not exceed 1600 pixels")
+                image = image.convert("RGB")
+                width, height = image.size
+                output = BytesIO()
+                image.save(output, format="JPEG", quality=90, optimize=True)
+                return output.getvalue(), width, height, digest
+    except (ValueError, Image.DecompressionBombError):
+        raise
+    except (OSError, UnidentifiedImageError, Image.DecompressionBombWarning) as exc:
+        raise ValueError("Frame cannot be decoded safely") from exc
 
 
 def capture_dto(connection, row) -> dict:
@@ -62,7 +92,10 @@ def store_capture_frame(connection, capture_row, index: int, raw_bytes: bytes) -
         raise ApiError(422, "VALIDATION_ERROR", "Frame index must be between 0 and 15", issues=[{"path": "index", "message": "Must be 0..15"}])
 
     capture_id = capture_row["id"]
-    digest = hashlib.sha256(raw_bytes).hexdigest()
+    try:
+        normalized, width, height, digest = normalize_frame(raw_bytes)
+    except ValueError as exc:
+        raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", str(exc)) from exc
     existing = connection.execute(
         "SELECT sha256,storage_key,width_px,height_px FROM capture_frames WHERE capture_id=? AND frame_index=?",
         (capture_id, index),
@@ -74,15 +107,12 @@ def store_capture_frame(connection, capture_row, index: int, raw_bytes: bytes) -
     if capture_row["state"] != "collecting":
         raise ApiError(409, "CONFLICT", "Capture frames are sealed after stitch submission")
 
-    _, width, height = inspect_image_bytes(raw_bytes, FRAME_MAX_BYTES)
-    if width > 1600 or height > 1600:
-        scale = min(1600 / width, 1600 / height)
-        width = max(1, int(round(width * scale)))
-        height = max(1, int(round(height * scale)))
+    if len(normalized) > FRAME_MAX_BYTES:
+        raise ApiError(413, "MEDIA_TOO_LARGE", "Normalized frame exceeds maximum allowed size")
 
     storage_key = f"captures/{capture_id}/frame-{index:02d}.bin"
     store = AssetStore(settings.media_path)
-    store.write_atomic(storage_key, raw_bytes)
+    store.write_atomic(storage_key, normalized)
     now = _now()
 
     if existing is None:

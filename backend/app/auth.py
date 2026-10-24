@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -27,10 +28,17 @@ _FALLBACK_PREFIX = "$argon2id$v=19$m=65536,t=3,p=4$scrypt$"
 _LOGIN_WINDOW_SECONDS = 60.0
 _LOGIN_MAX_FAILURES = 5
 _login_failures: dict[str, list[float]] = defaultdict(list)
+_login_lock = threading.Lock()
+_dummy_password_hash = PasswordHasher().hash(secrets.token_urlsafe(32)) if PasswordHasher is not None else None
 
 
-def clear_login_failures() -> None:
-    _login_failures.clear()
+def clear_login_failures(client_ip: str | None = None, email: str | None = None) -> None:
+    with _login_lock:
+        if client_ip is None or email is None:
+            _login_failures.clear()
+            return
+        _login_failures.pop(f"ip:{client_ip}", None)
+        _login_failures.pop(f"email:{email.strip().lower()}", None)
 
 
 def _prune_failures(key: str, now: float) -> list[float]:
@@ -47,16 +55,27 @@ def check_login_rate_limit(client_ip: str, email: str) -> None:
     now = time.monotonic()
     ip_key = f"ip:{client_ip}"
     email_key = f"email:{email.strip().lower()}"
-    if len(_prune_failures(ip_key, now)) >= _LOGIN_MAX_FAILURES or len(_prune_failures(email_key, now)) >= _LOGIN_MAX_FAILURES:
-        raise ApiError(429, "RATE_LIMITED", "Too many failed login attempts, please try again later")
+    with _login_lock:
+        if len(_prune_failures(ip_key, now)) >= _LOGIN_MAX_FAILURES or len(_prune_failures(email_key, now)) >= _LOGIN_MAX_FAILURES:
+            raise ApiError(429, "RATE_LIMITED", "Too many failed login attempts, please try again later")
 
 
 def record_login_failure(client_ip: str, email: str) -> None:
     now = time.monotonic()
-    for key in (f"ip:{client_ip}", f"email:{email.strip().lower()}"):
-        recent = _prune_failures(key, now)
-        recent.append(now)
-        _login_failures[key] = recent
+    with _login_lock:
+        for key in (f"ip:{client_ip}", f"email:{email.strip().lower()}"):
+            recent = _prune_failures(key, now)
+            recent.append(now)
+            _login_failures[key] = recent
+
+
+def verify_login_password(password_hash: str | None, password: str) -> bool:
+    """Verify unknown users with the same Argon2 work factor as known users."""
+    if password_hash is None:
+        if _dummy_password_hash is not None:
+            verify_password(_dummy_password_hash, password)
+        return False
+    return verify_password(password_hash, password)
 
 
 def hash_password(password: str) -> str:

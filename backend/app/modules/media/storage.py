@@ -4,6 +4,7 @@ from email.parser import BytesParser
 from email.policy import default as default_email_policy
 import io
 import os
+import tempfile
 from pathlib import Path
 import struct
 from uuid import uuid4
@@ -171,8 +172,33 @@ class AssetStore:
             raise ValueError("Invalid storage key outside media root")
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
-        tmp_path.write_bytes(data)
-        os.replace(tmp_path, target)
+        try:
+            with tmp_path.open("wb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp_path, target)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        return target
+
+    def frame_path(self, capture_id: str, index: int) -> Path:
+        return self.root / "captures" / capture_id / f"{index:02d}.frame"
+
+    def write_frame_atomic(self, capture_id: str, index: int, data: bytes) -> Path:
+        target = self.frame_path(capture_id, index)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix=".frame-", dir=target.parent)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
         return target
 
     def store_asset_variants(self, asset_id: str, raw_bytes: bytes, width: int, height: int) -> tuple[str, str, str, int, int]:

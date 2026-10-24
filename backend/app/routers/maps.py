@@ -73,6 +73,95 @@ def _owned_map(connection, map_id: str, owner_id: str):
     return row
 
 
+def _orientation(a, b, c) -> float:
+    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+
+
+def _segments_intersect(a, b, c, d) -> bool:
+    eps = 1e-9
+    ab_c, ab_d = _orientation(a, b, c), _orientation(a, b, d)
+    cd_a, cd_b = _orientation(c, d, a), _orientation(c, d, b)
+    if ab_c * ab_d < -eps and cd_a * cd_b < -eps:
+        return True
+
+    def on_segment(p, q, r):
+        return (min(p.x, r.x) - eps <= q.x <= max(p.x, r.x) + eps
+                and min(p.y, r.y) - eps <= q.y <= max(p.y, r.y) + eps)
+
+    return ((abs(ab_c) <= eps and on_segment(a, c, b))
+            or (abs(ab_d) <= eps and on_segment(a, d, b))
+            or (abs(cd_a) <= eps and on_segment(c, a, d))
+            or (abs(cd_b) <= eps and on_segment(c, b, d)))
+
+
+def _validate_document(connection, map_row, document: MapDocument) -> None:
+    width, height = map_row["width_units"], map_row["height_units"]
+    for shape in document.shapes:
+        points = shape.points
+        if any(point.x > width or point.y > height for point in points):
+            raise ApiError(422, "VALIDATION_ERROR", "Shape is outside map bounds")
+        if any(points[index].x == points[index + 1].x and points[index].y == points[index + 1].y
+               for index in range(len(points) - 1)):
+            raise ApiError(422, "VALIDATION_ERROR", "Shape contains a zero-length segment")
+        if shape.kind != "wall":
+            polygon = points[:-1] if len(points) > 3 and points[0] == points[-1] else points
+            if len(polygon) < 3:
+                raise ApiError(422, "VALIDATION_ERROR", "Room and corridor polygons need at least three points")
+            area = sum(polygon[i].x * polygon[(i + 1) % len(polygon)].y - polygon[(i + 1) % len(polygon)].x * polygon[i].y for i in range(len(polygon)))
+            if abs(area) < 1e-8:
+                raise ApiError(422, "VALIDATION_ERROR", "Room and corridor polygon has zero area")
+            for first in range(len(polygon)):
+                a, b = polygon[first], polygon[(first + 1) % len(polygon)]
+                for second in range(first + 1, len(polygon)):
+                    if second == first or second == (first + 1) % len(polygon) or first == (second + 1) % len(polygon):
+                        continue
+                    c, d = polygon[second], polygon[(second + 1) % len(polygon)]
+                    if _segments_intersect(a, b, c, d):
+                        raise ApiError(422, "VALIDATION_ERROR", "Room and corridor polygon self-intersects")
+    for node in document.nodes:
+        if node.x > width or node.y > height:
+            raise ApiError(422, "VALIDATION_ERROR", "Navigation node is outside map bounds")
+    node_ids = {node.id for node in document.nodes}
+    for poi in document.pois:
+        if poi.x > width or poi.y > height:
+            raise ApiError(422, "VALIDATION_ERROR", "POI is outside map bounds")
+        if poi.nav_node_id is not None and poi.nav_node_id not in node_ids:
+            raise ApiError(422, "VALIDATION_ERROR", "POI navigation node is not in this map")
+    for panorama in document.panoramas:
+        if panorama.x > width or panorama.y > height:
+            raise ApiError(422, "VALIDATION_ERROR", "Panorama is outside map bounds")
+        if panorama.nav_node_id is not None and panorama.nav_node_id not in node_ids:
+            raise ApiError(422, "VALIDATION_ERROR", "Panorama navigation node is not in this map")
+        asset = connection.execute("SELECT kind FROM assets WHERE id=? AND map_id=?", (panorama.asset_id, map_row["id"])).fetchone()
+        if asset is None or asset["kind"] != "panorama":
+            raise ApiError(422, "VALIDATION_ERROR", "Panorama must reference a panorama asset owned by this map")
+    panorama_node_ids = [panorama.nav_node_id for panorama in document.panoramas if panorama.nav_node_id is not None]
+    if len(panorama_node_ids) != len(set(panorama_node_ids)):
+        raise ApiError(422, "VALIDATION_ERROR", "Only one panorama may be attached to each navigation node")
+    panorama_ids = {panorama.id for panorama in document.panoramas}
+    poi_ids = {poi.id for poi in document.pois}
+    for hotspot in document.hotspots:
+        if hotspot.panorama_id not in panorama_ids:
+            raise ApiError(422, "VALIDATION_ERROR", "Hotspot panorama must belong to this map")
+        if hotspot.kind == "poi" and hotspot.poi_id not in poi_ids:
+            raise ApiError(422, "VALIDATION_ERROR", "Hotspot POI must belong to this map")
+        if hotspot.kind == "transition" and hotspot.target_panorama_id not in panorama_ids:
+            raise ApiError(422, "VALIDATION_ERROR", "Hotspot target panorama must belong to this map")
+    for edge in document.edges:
+        if edge.a not in node_ids or edge.b not in node_ids:
+            raise ApiError(422, "VALIDATION_ERROR", "Navigation edge endpoints must belong to this map")
+    edge_pairs = [(edge.a, edge.b) for edge in document.edges]
+    if len(edge_pairs) != len(set(edge_pairs)):
+        raise ApiError(422, "VALIDATION_ERROR", "Navigation edges must be unique")
+    if document.background_asset_id is not None:
+        asset = connection.execute("SELECT kind FROM assets WHERE id=? AND map_id=?", (document.background_asset_id, map_row["id"])).fetchone()
+        if asset is None or asset["kind"] != "plan":
+            raise ApiError(422, "VALIDATION_ERROR", "Map background must reference a plan asset owned by this map")
+    if document.is_published:
+        if not document.pois:
+            raise ApiError(422, "PUBLISH_BLOCKED", "A published map needs at least one POI")
+
+
 @router.get("")
 def list_maps(row=Depends(require_session)):
     with database() as connection:

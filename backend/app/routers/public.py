@@ -14,6 +14,12 @@ from backend.app.schemas import RouteRequest
 router = APIRouter(prefix="/api/v1/public", tags=["public"])
 
 
+def _etag_matches(header: str | None, etag: str) -> bool:
+    if not header:
+        return False
+    return any(token.strip() in {"*", etag, f"W/{etag}"} for token in header.split(","))
+
+
 @router.get("/maps/{slug}")
 def get_public_map(slug: str, response: Response, if_none_match: str | None = Header(default=None, alias="If-None-Match")):
     with database() as connection:
@@ -24,7 +30,7 @@ def get_public_map(slug: str, response: Response, if_none_match: str | None = He
             etag = f'"map-{row["id"]}-v{row["revision"]}"'
             response.headers["ETag"] = etag
             response.headers["Cache-Control"] = "no-cache"
-            if if_none_match == etag:
+            if _etag_matches(if_none_match, etag):
                 response.status_code = 304
                 return None
             return _snapshot(connection, row, public=True)

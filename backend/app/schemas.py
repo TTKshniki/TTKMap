@@ -135,6 +135,14 @@ class MapDocument(StrictModel):
             raise ValueError("scale_m_per_unit must be positive and at most 1000")
         return value
 
+    @model_validator(mode="after")
+    def unique_ids(self) -> "MapDocument":
+        groups = (self.shapes, self.nodes, self.edges, self.pois, self.panoramas, self.hotspots)
+        ids = [item.id for group in groups for item in group]
+        if len(ids) != len(set(ids)):
+            raise ValueError("IDs must be unique across a map document")
+        return self
+
 
 class CreateMapRequest(StrictModel):
     title: str = Field(min_length=1, max_length=160)
@@ -155,6 +163,15 @@ class CreateMapRequest(StrictModel):
 class LoginRequest(StrictModel):
     email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        local, separator, domain = normalized.partition("@")
+        if not separator or not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
+            raise ValueError("email must be a valid address")
+        return normalized
 
 
 class RouteRequest(StrictModel):
