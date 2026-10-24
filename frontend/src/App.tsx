@@ -15,7 +15,7 @@ import {
   UserProfile,
 } from './features/organizer';
 import { PanoramaViewer } from './features/panorama';
-import { MapNavigationView, SpacesHeroView } from './features/visitor';
+import { MapNavigationView, PublicSpacePage, SpacesHeroView } from './features/visitor';
 import { apiClient, ApiClientError } from './shared/api';
 import { Icon } from './shared/Icon';
 import {
@@ -225,6 +225,9 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    // A public link (/m/:slug, /embed/:slug) renders PublicSpacePage and loads
+    // its own snapshot, so the demo carousel does not poll the API.
+    if (initialSlugFromUrl) return;
     void syncPublicMaps();
     const interval = window.setInterval(() => {
       void syncPublicMaps();
@@ -260,6 +263,7 @@ export function App() {
 
   // Check active session on mount
   useEffect(() => {
+    if (initialSlugFromUrl) return;
     apiClient
       .session()
       .then((sess) => {
@@ -665,6 +669,12 @@ export function App() {
     }
     return currentSpace.image;
   })();
+
+  // Public visitor link: any published map slug is rendered by its own screen,
+  // independent of the demo space catalogue.
+  if (initialSlugFromUrl) {
+    return <PublicSpacePage slug={initialSlugFromUrl} mode={isEmbedRoute ? 'embed' : 'viewer'} />;
+  }
 
   return (
     <div className="h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 flex flex-col antialiased overflow-hidden">
