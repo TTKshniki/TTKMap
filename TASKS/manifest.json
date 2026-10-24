@@ -214,8 +214,7 @@
         "backend/app/routers/maps.py"
       ],
       "depends_on": [
-        "ttk-auth-hardening",
-        "ttk-map-validation"
+        "ttk-auth-hardening"
       ],
       "contract_refs": [
         "/api/v1/maps/{map_id}/assets",
@@ -300,8 +299,7 @@
         "backend/app/modules/media/storage.py"
       ],
       "depends_on": [
-        "ttk-map-validation",
-        "ttk-media-api"
+        "ttk-map-validation"
       ],
       "contract_refs": [
         "/api/v1/public/maps/{slug}",
@@ -352,8 +350,7 @@
       ],
       "depends_on": [
         "ttk-frontend-core",
-        "ttk-auth-hardening",
-        "ttk-map-validation"
+        "ttk-auth-hardening"
       ],
       "contract_refs": [
         "/api/v1/auth/login",
@@ -379,7 +376,6 @@
       ],
       "depends_on": [
         "ttk-frontend-core",
-        "ttk-map-validation",
         "ttk-media-api"
       ],
       "contract_refs": [
@@ -407,7 +403,6 @@
       ],
       "depends_on": [
         "ttk-frontend-core",
-        "ttk-plan-editor",
         "ttk-media-api"
       ],
       "contract_refs": [
@@ -476,6 +471,10 @@
       "role": "integration",
       "description": "Подключить API routers и feature exports, включить реальный worker queue consumer в уже созданный Compose service, добавить production SPA serving, CSP маршрутов и безопасный embed. Создать изолированный seed через реальные API, Playwright cross-origin iframe и полный E2E сценарий: вход, импорт/рисование, POI, собственная серия stitching, hotspot, маршрут, live update <=20 секунд, 412 и unpublish/media revoke. Runner обязан использовать настоящий backend/SQLite/worker и ненулевой код при сбое; обновить README и demo runbook.",
       "allowed_paths": [
+        ".github/**",
+        "AGENTS.md",
+        "TASKS/WORKPLAN.md",
+        "TASKS/manifest.json",
         "backend/app/main.py",
         "frontend/src/App.tsx",
         "compose.yaml",

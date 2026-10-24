@@ -1,0 +1,86 @@
+name: TTKMap CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ttkmap-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  task-scope:
+    name: Task scope
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate task ID and allowed paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python3 .github/check_task_scope.py
+
+  diff-check:
+    name: Diff check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject whitespace errors
+        run: git diff --check "${{ github.event.pull_request.base.sha || 'HEAD^' }}...${{ github.sha }}"
+
+  contracts:
+    name: Contracts and schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install contract checker dependency
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.2
+      - name: Check OpenAPI, SQLite schema and task graph
+        run: python scripts/check_contracts.py
+
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend dependencies
+        run: python -m pip install --disable-pip-version-check -r backend/requirements.txt
+      - name: Run backend tests
+        run: python -m pytest backend/tests -q
+
+  frontend:
+    name: Frontend tests and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Run frontend tests
+        run: npm run test
+        working-directory: frontend
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
