@@ -1121,7 +1121,7 @@ fun OrganizerWorkspaceScreen(
                                     val num = v.toDoubleOrNull()?.coerceIn(1.0, 1000000.0) ?: 500.0
                                     updateDraft { it.copy(maxWalkGapUnits = num) }
                                 },
-                                label = { Text("Макс. шаг walk") },
+                                label = { Text("Макс. шаг перехода (ед.)") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp),

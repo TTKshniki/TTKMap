@@ -514,6 +514,7 @@ private fun OrganizerWorkspaceContent(
                         OrganizerHubTab.CAMPUS -> {
                             CampusTabContent(
                                 maps = maps,
+                                repository = repository,
                                 onOpenPublicPreview = onOpenPublicPreview
                             )
                         }
@@ -1539,8 +1540,10 @@ private fun AiStudioTabContent(
 @Composable
 private fun CampusTabContent(
     maps: List<MapSummary>,
+    repository: TtkMapRepository,
     onOpenPublicPreview: (String) -> Unit
 ) {
+    val scope = rememberCoroutineScope()
     val buildings = remember { MultiFloorHelper.getDefaultCampusBuildings() }
 
     LazyColumn(
@@ -1618,9 +1621,27 @@ private fun CampusTabContent(
                     }
 
                     // Open campus preview button
-                    val targetSlug = maps.firstOrNull()?.slug ?: TtkMapRepository.DEMO_OFFLINE_SLUG
+                    val matchedMap = maps.firstOrNull { m ->
+                        val titleLower = m.title.lowercase()
+                        when (bld.id) {
+                            "bld_main" -> titleLower.contains("главн") || titleLower.contains("корпус 1") || titleLower.contains("основн")
+                            "bld_expo" -> titleLower.contains("экспо") || titleLower.contains("инновац") || titleLower.contains("павильон")
+                            "bld_outdoor" -> titleLower.contains("парк") || titleLower.contains("улиц") || titleLower.contains("открыт") || titleLower.contains("территор")
+                            else -> false
+                        }
+                    }
+                    val targetMap = matchedMap ?: maps.firstOrNull { it.isPublished } ?: maps.firstOrNull()
+
                     OutlinedButton(
-                        onClick = { onOpenPublicPreview(targetSlug) },
+                        onClick = {
+                            scope.launch {
+                                if (targetMap != null && !targetMap.isPublished) {
+                                    runCatching { repository.publishMap(targetMap.id) }
+                                }
+                                val slugToOpen = targetMap?.slug ?: TtkMapRepository.SHOWCASE_SLUG
+                                onOpenPublicPreview(slugToOpen)
+                            }
+                        },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {

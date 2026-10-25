@@ -312,19 +312,30 @@ class TtkMapRepository(
                 else -> throw network.parseError(res.statusCode, res.body)
             }
         } catch (e: TtkApiException) {
-            if (e.statusCode == 404) {
-                db.deleteCachedMap(cleanSlug)
-                throw e
-            }
             if (cached != null) {
                 val decoded = MapSnapshot.fromJson(JSONObject(cached.snapshotJson))
                 return PublicMapFetchResult.Updated(map = decoded, etag = cached.etag, isFromOfflineCache = true)
+            }
+            if (cleanSlug == DEMO_OFFLINE_SLUG || cleanSlug == SHOWCASE_SLUG) {
+                val demo = buildOfflineDemoSnapshot().copy(slug = cleanSlug)
+                val etag = "\"demo-offline-v4\""
+                cachePublicSnapshot(demo, etag)
+                return PublicMapFetchResult.Updated(map = demo, etag = etag, isFromOfflineCache = true)
+            }
+            if (e.statusCode == 404) {
+                db.deleteCachedMap(cleanSlug)
             }
             throw e
         } catch (e: Exception) {
             if (cached != null) {
                 val decoded = MapSnapshot.fromJson(JSONObject(cached.snapshotJson))
                 return PublicMapFetchResult.Updated(map = decoded, etag = cached.etag, isFromOfflineCache = true)
+            }
+            if (cleanSlug == DEMO_OFFLINE_SLUG || cleanSlug == SHOWCASE_SLUG) {
+                val demo = buildOfflineDemoSnapshot().copy(slug = cleanSlug)
+                val etag = "\"demo-offline-v4\""
+                cachePublicSnapshot(demo, etag)
+                return PublicMapFetchResult.Updated(map = demo, etag = etag, isFromOfflineCache = true)
             }
             throw e
         }
@@ -481,6 +492,7 @@ class TtkMapRepository(
 
     companion object {
         const val DEMO_OFFLINE_SLUG = "ttkexpo2026demospace000001"
+        const val SHOWCASE_SLUG = "ttkshowcampusmapdemoaaaaaa"
 
         fun buildOfflineDemoSnapshot(): PublicMap {
             val nEntrance = "00000000-0000-4000-8000-000000000101"

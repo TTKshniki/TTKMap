@@ -1,6 +1,11 @@
 package ru.ttk.map.feature.visitor
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Place
@@ -62,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
@@ -122,6 +129,14 @@ fun VisitorSpaceScreen(
     var isOffline by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var noticeText by remember { mutableStateOf<String?>(null) }
+    var showSavedPopup by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showSavedPopup) {
+        if (showSavedPopup) {
+            delay(3000)
+            showSavedPopup = false
+        }
+    }
 
     val context = LocalContext.current
     var activeFloorLevel by remember { mutableIntStateOf(1) }
@@ -425,24 +440,22 @@ fun VisitorSpaceScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            TtkLiveBadge(revision = currentMap.revision, isOffline = isOffline)
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = TtkDeepTeal.copy(alpha = 0.12f),
-                                modifier = Modifier.clickable {
+                            IconButton(
+                                onClick = {
                                     scope.launch {
-                                        repository.cachePublicSnapshot(currentMap, etag ?: "\"offline-${currentMap.id}-v${currentMap.revision}\"")
-                                        pushNotice("💾 Карта сохранена офлайн на устройстве")
-                                        Toast.makeText(context, "Карта сохранена для работы без интернета", Toast.LENGTH_SHORT).show()
+                                        repository.cachePublicSnapshot(
+                                            currentMap,
+                                            etag ?: "\"offline-${currentMap.id}-v${currentMap.revision}\""
+                                        )
+                                        showSavedPopup = true
+                                        Toast.makeText(context, "Сохранено на устройство", Toast.LENGTH_SHORT).show()
                                     }
-                                }
+                                },
+                                modifier = Modifier.size(38.dp)
                             ) {
-                                Text(
-                                    text = "💾 Офлайн",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TtkDeepTeal,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                DownloadArrowIcon(
+                                    modifier = Modifier.size(20.dp),
+                                    tint = TtkDeepTeal
                                 )
                             }
                             IconButton(
@@ -502,13 +515,16 @@ fun VisitorSpaceScreen(
             }
         }
     ) { innerPadding ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(innerPadding)
         ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             // 1. Interactive 2D / 3D Plan Canvas & Floor Controls
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -942,6 +958,42 @@ fun VisitorSpaceScreen(
                 }
             }
         }
+
+        // Animated bottom mini-window popup: "Сохранено на устройство"
+            AnimatedVisibility(
+                visible = showSavedPopup,
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = TtkDeepTeal,
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = Color(0xFF10B981),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "Сохранено на устройство",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // 360° Panorama Fullscreen Viewer Dialog
@@ -1200,5 +1252,29 @@ private fun RouteBuilderSection(
                 }
             }
         }
+    }
+}
+
+/**
+ * Pixel-perfect Download Arrow Icon matching TTK style.
+ */
+@Composable
+fun DownloadArrowIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = Color.Unspecified
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = 2.dp.toPx()
+        val c = if (tint == Color.Unspecified) Color(0xFF203C3C) else tint
+
+        // Arrow stem
+        drawLine(c, Offset(w / 2f, h * 0.12f), Offset(w / 2f, h * 0.62f), strokeWidth = stroke)
+        // Arrowhead
+        drawLine(c, Offset(w * 0.26f, h * 0.40f), Offset(w / 2f, h * 0.62f), strokeWidth = stroke)
+        drawLine(c, Offset(w * 0.74f, h * 0.40f), Offset(w / 2f, h * 0.62f), strokeWidth = stroke)
+        // Bottom tray line
+        drawLine(c, Offset(w * 0.20f, h * 0.85f), Offset(w * 0.80f, h * 0.85f), strokeWidth = stroke)
     }
 }
