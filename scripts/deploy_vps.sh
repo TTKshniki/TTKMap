@@ -117,7 +117,6 @@ tar -czf - \
   --exclude='./android/app/.gradle' \
   --exclude='./android/build' \
   --exclude='./android/app/build' \
-  --exclude='./frontend/public/photos' \
   --exclude='./frontend/node_modules' \
   --exclude='./frontend/dist' \
   -C "$ROOT_DIR" . | "${SSH_BASE[@]}" "$REMOTE" "APP_DIR='$REMOTE_DIR'; TMP=\$(mktemp); cat > \"\$TMP\"; if [ \$(id -u) -eq 0 ]; then install -d -m 0755 \"\$APP_DIR\"; tar -xzf \"\$TMP\" -C \"\$APP_DIR\"; else sudo -n install -d -m 0755 \"\$APP_DIR\"; sudo -n tar -xzf \"\$TMP\" -C \"\$APP_DIR\"; fi; rm -f \"\$TMP\""

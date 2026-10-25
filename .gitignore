@@ -18,7 +18,6 @@ data/
 backups/
 photos/
 Update Design/
-frontend/public/photos/
 !frontend/src/design/data/
 !frontend/src/design/data/**
 frontend/.vite/

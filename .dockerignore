@@ -18,7 +18,6 @@ android/app/.gradle
 android/app/.idea
 android/build
 android/app/build
-frontend/public/photos
 .env
 __pycache__
 .pytest_cache
