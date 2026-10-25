@@ -443,3 +443,339 @@ button, input, textarea, select { font: inherit; }
   .plan-editor .tool-chip { padding: .5rem .65rem; font-size: 11px; }
   .plan-editor .plan-scroll, .plan-editor .plan-sheet { border-radius: .6rem; }
 }
+
+/* ---- Mobile shell polish -------------------------------------------------
+   The public catalogue is used most often on a phone. Keep the desktop
+   layout intact, but remove fixed-width controls and make dense map actions
+   scrollable instead of clipped. */
+.ttk-site-header__inner {
+  min-width: 0;
+}
+
+.ttk-site-header__actions {
+  min-width: 0;
+}
+
+.ttk-site-header__auth {
+  min-height: 36px;
+}
+
+.ttk-site-header__mobile-menu button {
+  min-height: 44px;
+}
+
+.space-card__image,
+.favorite-card__image {
+  background: linear-gradient(135deg, #dbe8e2, #f4d6d3);
+}
+
+@media (max-width: 767px) {
+  .ttk-site-header__inner {
+    height: 60px;
+    padding-inline: 12px;
+    gap: 8px;
+  }
+
+  .ttk-site-header__logo img {
+    max-width: 64px;
+    height: 24px;
+  }
+
+  .ttk-site-header__language,
+  .ttk-site-header__city {
+    display: none;
+  }
+
+  .ttk-site-header__actions {
+    gap: 4px;
+  }
+
+  .ttk-site-header__auth {
+    width: 36px;
+    padding-inline: 0;
+    justify-content: center;
+  }
+
+  .ttk-site-header__auth-label {
+    display: none;
+  }
+
+  .ttk-site-header__theme,
+  .ttk-site-header__menu {
+    width: 36px;
+    height: 36px;
+  }
+
+  .ttk-site-header__mobile-menu {
+    padding: 12px;
+  }
+
+  .ttk-site-header__mobile-menu > button {
+    display: flex;
+    align-items: center;
+  }
+
+  .ttk-site-header__settings {
+    flex-wrap: wrap;
+  }
+
+  .ttk-site-header__settings > span {
+    width: 100%;
+    flex: 0 0 100%;
+  }
+
+  .ttk-site-header__settings select {
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  .spaces-page {
+    padding: 12px;
+  }
+
+  .spaces-page > div {
+    gap: 1.5rem;
+  }
+
+  .spaces-hero {
+    min-height: 0;
+  }
+
+  .spaces-hero > div:first-child {
+    padding: 20px;
+    gap: 1.25rem;
+  }
+
+  .spaces-hero h1 {
+    font-size: clamp(1.75rem, 8vw, 2.25rem);
+  }
+
+  .spaces-hero > div:last-child {
+    min-height: 180px;
+  }
+
+  .space-card__image {
+    height: 190px;
+  }
+
+  .space-card__image img {
+    min-height: 100%;
+  }
+
+  .spaces-hero > div:last-child {
+    background-position: center;
+  }
+
+  .space-card__body {
+    padding: 16px;
+  }
+
+  .space-card__actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .space-card__actions > button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .map-view {
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .map-view__sidebar {
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .dark .map-view__sidebar {
+    border-bottom-color: #1e293b;
+  }
+
+  .map-view__content {
+    overflow: visible;
+    padding: 12px;
+  }
+
+  .map-view__stage {
+    height: 400px;
+  }
+
+  .map-view__stage > div:first-child {
+    padding-inline: 12px;
+  }
+
+  .map-view__stage > div:first-child > div:first-child {
+    min-width: 0;
+  }
+
+  .map-view__stage > div:first-child span:last-child {
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .map-view__svg-viewport {
+    align-items: flex-start;
+    justify-content: flex-start;
+    overflow: auto;
+    padding: 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .map-view__svg-scroll {
+    flex: 0 0 auto;
+    width: max-content;
+    min-width: 720px;
+    transform-origin: top left;
+  }
+
+  .map-view__route {
+    padding: 16px;
+    border-radius: 1.25rem;
+  }
+
+  .map-view__route > div {
+    gap: 1.25rem;
+  }
+
+  .map-view__route h2 {
+    font-size: 1.25rem;
+  }
+
+  .map-view__route h3 {
+    line-height: 1.35;
+  }
+}
+
+@media (max-width: 380px) {
+  .ttk-site-header__theme {
+    display: none;
+  }
+
+  .spaces-hero > div:first-child {
+    padding: 16px;
+  }
+
+  .map-view__stage {
+    height: 360px;
+  }
+}
+
+.showcase-open-button {
+  min-height: 44px;
+  box-shadow: 0 4px 14px rgba(29, 104, 96, .1);
+}
+
+.showcase-open-button:hover {
+  background: #edf7f2;
+  border-color: #1d6860;
+}
+
+.showcase-capabilities {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #dce5df;
+  border-radius: 1rem;
+  background: #dce5df;
+}
+
+.showcase-capabilities > div {
+  min-width: 0;
+  padding: 18px;
+  background: rgba(255, 255, 255, .95);
+}
+
+.showcase-capabilities > div > span {
+  display: block;
+  margin-bottom: 12px;
+  color: #1d6860;
+  font: 800 10px/1 ui-monospace, monospace;
+  letter-spacing: .1em;
+}
+
+.showcase-capabilities strong {
+  display: block;
+  color: #203c3c;
+  font-size: 13px;
+}
+
+.showcase-capabilities p {
+  margin: 6px 0 0;
+  color: #667377;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.showcase-capabilities .showcase-capabilities__note {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid #dce5df;
+  background: #f5f8f6;
+  font-size: 10px;
+}
+
+@media (max-width: 700px) {
+  .showcase-capabilities { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .showcase-capabilities > div { padding: 14px; }
+  .showcase-capabilities strong { font-size: 12px; }
+}
+
+@media (max-width: 700px) {
+  .app-bar {
+    min-height: 60px;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .app-bar__actions {
+    min-width: 0;
+    gap: 4px !important;
+  }
+
+  .app-bar__actions button {
+    min-height: 40px;
+  }
+
+  .app-bar__actions button:not(:first-child) {
+    padding-inline: 10px;
+  }
+
+  .app-bar__back {
+    font-size: 0;
+    padding-inline: 11px;
+  }
+
+  .app-bar__back::before {
+    content: '←';
+    font-size: 1rem;
+  }
+
+  .app-bar__logout {
+    padding-inline: 11px;
+  }
+}
+
+/* Public map and embedded map keep a usable touch target without making the
+   route panel consume the whole first viewport. */
+@media (max-width: 700px) {
+  .ttk-visitor-bar {
+    padding: 10px 12px;
+  }
+
+  .ttk-visitor-panel {
+    max-height: 44vh;
+  }
+
+  .ttk-plan__scroll {
+    min-height: 42vh;
+  }
+}

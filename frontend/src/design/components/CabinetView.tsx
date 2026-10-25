@@ -94,11 +94,14 @@ export const CabinetView: React.FC<CabinetViewProps> = ({
               key={String(item.id)}
               className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 space-y-3 shadow-xs relative group"
             >
-              <div className="h-40 rounded-xl overflow-hidden relative">
+              <div className="favorite-card__image h-40 rounded-xl overflow-hidden relative">
                 <img
                   src={item.image}
                   alt={item.name[lang]}
                   className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                  onError={(event) => {
+                    event.currentTarget.style.display = 'none';
+                  }}
                 />
                 <div className="absolute inset-0 bg-white/10 dark:bg-transparent pointer-events-none" />
 

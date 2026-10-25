@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Navigation2,
@@ -28,6 +28,9 @@ import {
   TranslationDictionary,
   ViewType,
 } from '../types';
+import type { PublicMap, Shape } from '../../../../CONTRACTS/types';
+import { buildVisitorModel, type VisitorPoi } from '../../features/visitor/model';
+import { IsometricViewer } from '../../features/model3d/IsometricViewer';
 
 interface MapViewProps {
   t: TranslationDictionary;
@@ -55,6 +58,7 @@ interface MapViewProps {
   zoomInMap: () => void;
   zoomOutMap: () => void;
   resetMapZoom: () => void;
+  publicMap?: PublicMap | null;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -83,6 +87,7 @@ export const MapView: React.FC<MapViewProps> = ({
   zoomInMap,
   zoomOutMap,
   resetMapZoom,
+  publicMap = null,
 }) => {
   const floors = currentSpace.buildings[activeBuilding]
     ? currentSpace.buildings[activeBuilding].floors
@@ -250,6 +255,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
     return {
       path: `M ${pts.map((p) => `${p.x},${p.y}`).join(' L ')}`,
+      points: pts,
       start: pts[0],
       end: pts[pts.length - 1],
       length,
@@ -263,10 +269,40 @@ export const MapView: React.FC<MapViewProps> = ({
   };
 
   const activeRoute = getPolishedRoute(routeFrom, routeTo, mainDoorSide);
+  const demoShapes = useMemo<Shape[]>(
+    () => [
+      { id: 'demo-room-1', kind: 'room', label: 'Кабинет 1', points: [{ x: 40, y: 40 }, { x: 240, y: 40 }, { x: 240, y: 320 }, { x: 40, y: 320 }] },
+      { id: 'demo-room-2', kind: 'room', label: 'Переговорная Альфа', points: [{ x: 248, y: 40 }, { x: 420, y: 40 }, { x: 420, y: 320 }, { x: 248, y: 320 }] },
+      { id: 'demo-room-3', kind: 'room', label: 'Кофе-пойнт', points: [{ x: 428, y: 40 }, { x: 552, y: 40 }, { x: 552, y: 220 }, { x: 428, y: 220 }] },
+      { id: 'demo-room-4', kind: 'room', label: 'Санузел', points: [{ x: 560, y: 40 }, { x: 680, y: 40 }, { x: 680, y: 220 }, { x: 560, y: 220 }] },
+      { id: 'demo-room-5', kind: 'room', label: 'Кабинет 2', points: [{ x: 500, y: 228 }, { x: 680, y: 228 }, { x: 680, y: 400 }, { x: 500, y: 400 }] },
+      { id: 'demo-corridor', kind: 'corridor', label: 'Коридор', points: [{ x: 248, y: 328 }, { x: 500, y: 328 }, { x: 500, y: 400 }, { x: 248, y: 400 }] },
+      { id: 'demo-wall-1', kind: 'wall', label: '', points: [{ x: 40, y: 40 }, { x: 680, y: 40 }, { x: 680, y: 400 }, { x: 240, y: 400 }, { x: 240, y: 320 }, { x: 40, y: 320 }] },
+    ],
+    [],
+  );
+  const backendVisitorModel = useMemo(() => (publicMap ? buildVisitorModel(publicMap) : null), [publicMap]);
+  const isoPois = useMemo<VisitorPoi[]>(
+    () => backendVisitorModel?.pois ?? currentSpace.pois.map((poi) => ({
+      id: String(poi.id),
+      title: poi.name[lang],
+      category: poi.category === 'entrance' ? 'entrance' : poi.category === 'service' ? 'service_desk' : 'hall',
+      categoryLabel: poi.categoryName[lang],
+      description: poi.statusText[lang],
+      x: poi.x * 6.8,
+      y: poi.y * 3.8,
+      navNodeId: null,
+      panoramaId: null,
+    })),
+    [backendVisitorModel, currentSpace.pois, lang],
+  );
+  const isoShapes = backendVisitorModel?.shapes ?? demoShapes;
+  const isoWidth = backendVisitorModel?.widthUnits ?? 720;
+  const isoHeight = backendVisitorModel?.heightUnits ?? 440;
 
   return (
-    <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative min-h-[600px]">
-      <div className="w-full md:w-96 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-20 shadow-md overflow-y-auto custom-scrollbar">
+    <div className="map-view flex-1 flex flex-col md:flex-row overflow-hidden relative min-h-[600px]">
+      <div className="map-view__sidebar w-full md:w-96 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-20 shadow-md overflow-y-auto custom-scrollbar">
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
             <div>
@@ -468,8 +504,8 @@ export const MapView: React.FC<MapViewProps> = ({
       </div>
 
       {/* Интерактивная векторная SVG карта */}
-      <div className="flex-1 bg-slate-50 dark:bg-slate-950 overflow-y-auto p-4 sm:p-6 custom-scrollbar space-y-4">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-[520px] relative dark:shadow-[0_0_30px_rgba(249,115,22,0.12)]">
+      <div className="map-view__content flex-1 bg-slate-50 dark:bg-slate-950 overflow-y-auto p-4 sm:p-6 custom-scrollbar space-y-4">
+        <div className="map-view__stage bg-white dark:bg-slate-900 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-[520px] relative dark:shadow-[0_0_30px_rgba(249,115,22,0.12)]">
           <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-2.5 flex items-center justify-between z-10">
             <div className="flex items-center space-x-2">
               <span className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
@@ -501,13 +537,33 @@ export const MapView: React.FC<MapViewProps> = ({
             </div>
           </div>
 
-          <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
+          <IsometricViewer
+            modelUrl={publicMap ? `/api/v1/public/maps/${encodeURIComponent(publicMap.slug)}/model3d.glb` : null}
+            widthUnits={isoWidth}
+            heightUnits={isoHeight}
+            scaleMPerUnit={backendVisitorModel?.scaleMPerUnit}
+            shapes={isoShapes}
+            pois={isoPois}
+            panoramas={backendVisitorModel?.panoramas ?? []}
+            routePolyline={routeActive ? activeRoute.points : null}
+            selectedPoiId={selectedPoi ? String(selectedPoi.id) : null}
+            onSelectPoi={(poi) => {
+              const found = currentSpace.pois.find((item) => String(item.id) === poi.id);
+              if (found) setSelectedPoi(found);
+            }}
+            onOpenPanorama={() => openPanorama(selectedPoi)}
+            onZoomIn={zoomInMap}
+            onZoomOut={zoomOutMap}
+            onResetZoom={resetMapZoom}
+          />
+
+          <div className="map-view__legacy-svg hidden map-view__svg-viewport flex-1 relative overflow-hidden flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
             <div
-              className="relative transition-transform duration-300"
+              className="map-view__svg-scroll relative transition-transform duration-300"
               style={{ transform: `scale(${zoomLevel})` }}
             >
               <svg
-                className="w-[720px] h-[440px] bg-white dark:bg-slate-800/80 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-inner"
+                className="map-view__svg w-[720px] h-[440px] bg-white dark:bg-slate-800/80 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-inner"
                 viewBox="0 0 720 440"
               >
                 <defs>
@@ -937,7 +993,7 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
 
         {/* БЛОК: ПОСТРОЕНИЕ И РАСЧЕТ МАРШРУТА С ПОШАГОВОЙ ИНСТРУКЦИЕЙ */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 mt-4">
+        <div className="map-view__route bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 mt-4">
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
             {t.routeCalcTitle}
           </h2>

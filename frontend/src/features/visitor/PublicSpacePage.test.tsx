@@ -80,6 +80,16 @@ describe('PublicSpacePage', () => {
     expect(screen.getByLabelText('Точка: Стенд ТТК')).toBeInTheDocument();
   });
 
+  it('switches between the 3D view and the original 2D plan', async () => {
+    render(<PublicSpacePage slug="ttk-any-published-slug" pollMs={600000} />);
+    await screen.findByText('ТТК Экспо');
+    expect(screen.getByTestId('isometric-plan')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '2D план' }));
+    expect(screen.getByTestId('public-plan')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '3D изометрия' }));
+    expect(screen.getByTestId('isometric-plan')).toBeInTheDocument();
+  });
+
   it('shows the new revision when a different published slug is loaded', async () => {
     render(<PublicSpacePage slug="another-map-slug" pollMs={600000} />);
     await screen.findByText('ТТК Экспо');

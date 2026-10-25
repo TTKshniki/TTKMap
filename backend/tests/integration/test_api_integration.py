@@ -8,7 +8,7 @@ from backend.app.auth import clear_login_failures, create_organizer
 from backend.app.config import settings
 from backend.app.db import initialize_database
 from backend.app.main import create_app
-from scripts.seed_demo import make_png_bytes, seed_demo_data
+from scripts.seed_demo import SHOWCASE_SLUG, make_png_bytes, seed_demo_data
 
 
 @pytest.fixture()
@@ -147,12 +147,31 @@ def test_full_organizer_and_public_lifecycle(api_client: TestClient):
     assert cancel_res.json()["state"] == "cancelled"
 
 
-def test_seed_demo_populates_three_spaces(api_client: TestClient):
+def test_seed_demo_populates_spaces_and_flagship_showcase(api_client: TestClient):
     seeded = seed_demo_data()
-    assert len(seeded) == 3
+    assert len(seeded) == 4
+    assert SHOWCASE_SLUG in seeded
     for slug in seeded:
         res = api_client.get(f"/api/v1/public/maps/{slug}")
         assert res.status_code == 200
         data = res.json()
         assert data["document"]["is_published"] is True
         assert len(data["document"]["pois"]) >= 2
+    showcase = api_client.get(f"/api/v1/public/maps/{SHOWCASE_SLUG}").json()
+    assert showcase["document"]["title"] == "TTK Digital Campus · эталонная демо-модель"
+    assert len(showcase["document"]["pois"]) == 6
+    assert len(showcase["document"]["panoramas"]) == 4
+    assert showcase["document"]["background_asset_id"]
+    assert len(showcase["assets"]) == 5  # one illustrated plan + four explicitly synthetic spheres
+    pois = showcase["document"]["pois"]
+    route = api_client.post(
+        f"/api/v1/public/maps/{SHOWCASE_SLUG}/route",
+        json={
+            "revision": showcase["revision"],
+            "from_node_id": pois[0]["nav_node_id"],
+            "to_node_id": pois[3]["nav_node_id"],
+        },
+    )
+    assert route.status_code == 200
+    assert route.json()["walk"]["available"] is True
+    assert len(route.json()["walk"]["steps"]) == 4

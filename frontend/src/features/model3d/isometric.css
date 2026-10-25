@@ -1,0 +1,180 @@
+.ttk-isometric {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 22rem;
+  overflow: hidden;
+  background: #f3f6f4;
+  color: #1c292d;
+}
+
+.ttk-isometric__toolbar {
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding: .55rem .75rem;
+  border-bottom: 1px solid #dce3df;
+  background: rgba(255, 255, 255, .9);
+  backdrop-filter: blur(8px);
+}
+
+.ttk-isometric__badge,
+.ttk-isometric__zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.ttk-isometric__badge {
+  color: #1d6860;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.ttk-isometric__zoom { gap: .3rem; }
+
+.ttk-isometric__zoom button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid #dce3df;
+  border-radius: .6rem;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.ttk-isometric__zoom button:hover { background: #edf3ef; }
+
+.ttk-isometric__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ttk-isometric__canvas,
+.ttk-isometric__markers,
+.ttk-isometric__route-fallback {
+  position: absolute;
+  inset: 0;
+}
+
+.ttk-isometric__canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.ttk-isometric__route-fallback {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.ttk-isometric__route-fallback polyline {
+  fill: none;
+  stroke: #e31b23;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-dasharray: 18 12;
+}
+
+.ttk-isometric__markers { pointer-events: none; }
+
+.ttk-isometric__marker {
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 2px solid #e31b23;
+  border-radius: 9999px;
+  background: #fff;
+  color: #e31b23;
+  box-shadow: 0 5px 14px rgba(15, 23, 42, .25);
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.ttk-isometric__marker span {
+  width: .55rem;
+  height: .55rem;
+  border-radius: 9999px;
+  background: currentColor;
+}
+
+.ttk-isometric__marker--panorama {
+  width: 1.45rem;
+  height: 1.45rem;
+  border: 0;
+  background: rgba(227, 27, 35, .18);
+}
+
+.ttk-isometric__marker--panorama span {
+  width: .55rem;
+  height: .55rem;
+  background: #e31b23;
+  box-shadow: 0 0 0 3px rgba(227, 27, 35, .25);
+}
+
+.ttk-isometric__marker.is-selected {
+  background: #e31b23;
+  color: #fff;
+  transform: translate(-50%, -50%) scale(1.15);
+}
+
+.ttk-isometric__loading,
+.ttk-isometric__notice {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(90%, 28rem);
+  padding: .65rem .9rem;
+  border-radius: .8rem;
+  text-align: center;
+  font-size: .72rem;
+  line-height: 1.4;
+}
+
+.ttk-isometric__loading {
+  top: 50%;
+  color: #1c292d;
+  background: rgba(255, 255, 255, .9);
+  box-shadow: 0 8px 25px rgba(15, 23, 42, .12);
+}
+
+.ttk-isometric__notice {
+  top: .75rem;
+  color: #7c2d12;
+  background: rgba(255, 247, 237, .95);
+  border: 1px solid #fed7aa;
+}
+
+.ttk-isometric__hint {
+  margin: 0;
+  padding: .4rem .75rem;
+  color: #71807c;
+  background: rgba(255, 255, 255, .9);
+  font-size: .66rem;
+  text-align: center;
+}
+
+.ttk-isometric--compact .ttk-isometric__hint { display: none; }
+
+@media (max-width: 700px) {
+  .ttk-isometric { min-height: 19rem; }
+  .ttk-isometric__hint { font-size: .6rem; }
+  .ttk-isometric__marker { width: 2.25rem; height: 2.25rem; }
+}
