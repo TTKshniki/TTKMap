@@ -15,6 +15,7 @@ import {
   UserProfile,
   ViewType,
 } from '../types';
+import { SHOWCASE_MAP_SLUG } from '../../shared/showcase';
 
 interface SpacesViewProps {
   t: TranslationDictionary;
@@ -30,6 +31,7 @@ interface SpacesViewProps {
   toggleFavorite: (id: SpaceKey | number, e?: React.MouseEvent) => void;
   triggerMetallicFlash: (e: React.MouseEvent<HTMLDivElement>) => void;
   showNotification: (msg: string) => void;
+  onOpenPublicMap?: (slug: string) => void;
 }
 
 export const SpacesView: React.FC<SpacesViewProps> = ({
@@ -46,6 +48,7 @@ export const SpacesView: React.FC<SpacesViewProps> = ({
   toggleFavorite,
   triggerMetallicFlash,
   showNotification,
+  onOpenPublicMap,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -62,13 +65,13 @@ export const SpacesView: React.FC<SpacesViewProps> = ({
   });
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 custom-scrollbar relative">
+    <div className="spaces-page p-4 sm:p-6 lg:p-8 custom-scrollbar relative">
       {/* Фоновый светлый градиент-аура */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-96 bg-gradient-to-r from-red-100/40 via-rose-50/20 to-amber-50/30 blur-3xl pointer-events-none dark:hidden" />
 
       <div className="max-w-7xl mx-auto space-y-8 relative z-10">
         {/* Промо-баннер с белой полупрозрачной пленкой */}
-        <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 grid grid-cols-1 lg:grid-cols-2 overflow-hidden min-h-[360px] relative">
+        <div className="spaces-hero bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 grid grid-cols-1 lg:grid-cols-2 overflow-hidden min-h-[360px] relative">
           <div className="p-6 sm:p-8 lg:p-10 flex flex-col justify-between space-y-6 z-10 bg-white/90 dark:bg-slate-900/90 border-r-0 lg:border-r border-slate-200 dark:border-slate-800">
             <div className="space-y-4">
               <span className="bg-[#E31B23] text-white text-[11px] sm:text-xs font-bold px-3 py-1.5 rounded-full uppercase tracking-wider inline-block shadow-xs">
@@ -100,6 +103,14 @@ export const SpacesView: React.FC<SpacesViewProps> = ({
                 <Map className="w-4 h-4" />
                 <span>{t.openMapBtn}</span>
               </button>
+              <button
+                type="button"
+                onClick={() => onOpenPublicMap?.(SHOWCASE_MAP_SLUG)}
+                className="showcase-open-button bg-white text-[#1d6860] border border-[#b8d2c8] font-bold px-5 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-2"
+              >
+                <Rotate3d className="w-4 h-4" />
+                <span>Показать эталонную демо-карту</span>
+              </button>
             </div>
           </div>
 
@@ -107,12 +118,39 @@ export const SpacesView: React.FC<SpacesViewProps> = ({
           <div
             className="relative bg-cover bg-center min-h-[260px] lg:min-h-full"
             style={{
-              backgroundImage: "url('/photos/photo-4.jpg')",
+              backgroundImage: "linear-gradient(135deg, rgba(32,60,60,.9), rgba(215,25,32,.35)), url('/photos/photo-4.jpg')",
+              backgroundColor: '#dfe9e5',
             }}
           >
             <div className="absolute inset-0 bg-white/75 dark:bg-slate-950/60 backdrop-blur-[1px]" />
           </div>
         </div>
+
+        <section className="showcase-capabilities" aria-label="Возможности TTKMap">
+          <div>
+            <span>01</span>
+            <strong>План и изометрия</strong>
+            <p>Переключение между 2D-планом и объёмной моделью.</p>
+          </div>
+          <div>
+            <span>02</span>
+            <strong>Поиск и навигация</strong>
+            <p>Категории объектов, маршруты и подсказки по проходу.</p>
+          </div>
+          <div>
+            <span>03</span>
+            <strong>Панорамы 360°</strong>
+            <p>Интерактивные точки и переходы между связанными панорамами.</p>
+          </div>
+          <div>
+            <span>04</span>
+            <strong>Организаторский контур</strong>
+            <p>Редактор, публикация, мобильная съёмка и публичная ссылка.</p>
+          </div>
+          <p className="showcase-capabilities__note">
+            В демо 360°-сцены — синтетические иллюстрации для показа интерфейса, не реальные фотографии и не результат склейки.
+          </p>
+        </section>
 
         {/* Сетка карточек пространств с поиском справа от заголовка */}
         <div>
@@ -165,11 +203,14 @@ export const SpacesView: React.FC<SpacesViewProps> = ({
                     }
                   }}
                 >
-                  <div className="h-52 bg-slate-100 dark:bg-slate-800 relative overflow-hidden">
+                  <div className="space-card__image h-52 bg-slate-100 dark:bg-slate-800 relative overflow-hidden">
                     <img
                       src={space.image}
                       alt={space.name[lang]}
                       className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                      onError={(event) => {
+                        event.currentTarget.style.display = 'none';
+                      }}
                     />
 
                     {/* Белая пленка поверх картинки карточки для светлой темы */}
@@ -200,7 +241,7 @@ export const SpacesView: React.FC<SpacesViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                  <div className="space-card__body p-5 flex-1 flex flex-col justify-between space-y-4">
                     <div className="space-y-2">
                       <div className="flex items-center gap-1 text-xs font-bold text-amber-500">
                         <span>★</span>
@@ -218,7 +259,7 @@ export const SpacesView: React.FC<SpacesViewProps> = ({
                       </p>
                     </div>
 
-                    <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800 text-xs">
+                    <div className="space-card__actions flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800 text-xs">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

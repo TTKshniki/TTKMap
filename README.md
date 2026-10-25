@@ -73,3 +73,11 @@ docker compose run --rm api python -m backend.app.cli backup /data/backups/backu
 - `CONTRACTS/db_schema.sql` и `CONTRACTS/migrations/` описывают SQLite-схему.
 
 Изменение OpenAPI сопровождается запуском `python3 scripts/generate_types.py`. Существующая база не пересоздаётся автоматически; миграции выполняются отдельной командой с резервной копией.
+
+## Expert showcase
+
+Для экспертной демонстрации доступна эталонная карта `TTK Digital Campus`:
+
+- публичная ссылка: `http://localhost:8000/m/ttkshowcampusmapdemoaaaaaa`;
+- локальная подготовка и сценарий: [`docs/demo.md`](docs/demo.md);
+- демо-план и 360°-сцены явно являются синтетическими иллюстрациями, а не реальной съёмкой или результатом stitching.

@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 import json
 import struct
 import zlib
+from io import BytesIO
 from pathlib import Path
 
 from backend.app.auth import hash_password
 from backend.app.config import settings
 from backend.app.db import database, initialize_database, transaction
 from backend.app.modules.media.storage import AssetStore
+from PIL import Image, ImageDraw
 
 
 DEMO_ORGANIZER_ID = "00000000-0000-4000-8000-000000000099"
@@ -19,6 +21,7 @@ DEMO_ORGANIZER_PASSWORD = "ttkmap-organizer-2026"
 PLAZA_SLUG = "ttkplazabusinesscenteraaaa"
 EXPO_SLUG = "ttkexpocitypavilionmapaaaa"
 HOTEL_SLUG = "ttkgrandcityhotelspaceaaaa"
+SHOWCASE_SLUG = "ttkshowcampusmapdemoaaaaaa"
 
 
 def make_png_bytes(width: int = 800, height: int = 400, rgb: tuple[int, int, int] = (227, 27, 35)) -> bytes:
@@ -39,6 +42,157 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _demo_uuid(number: int) -> str:
+    return f"00000000-0000-4000-8000-{number:012d}"
+
+
+def _showcase_plan_png() -> bytes:
+    """A clearly illustrative, legible floor-plan texture for the expert demo."""
+    image = Image.new("RGB", (1400, 1000), "#f4f7f4")
+    draw = ImageDraw.Draw(image)
+    for x in range(0, 1401, 40):
+        draw.line((x, 0, x, 1000), fill="#e3eae5", width=1)
+    for y in range(0, 1001, 40):
+        draw.line((0, y, 1400, y), fill="#e3eae5", width=1)
+
+    # Coordinates match the 700 x 500 map document below (scaled by 2).
+    rooms = [
+        ((70, 80, 400, 420), "#dcece5"),
+        ((440, 80, 1330, 420), "#f4e8d6"),
+        ((70, 600, 640, 920), "#e4e8f5"),
+        ((680, 600, 1330, 920), "#f5e1e2"),
+        ((70, 450, 1330, 570), "#e9efed"),
+    ]
+    for bounds, fill in rooms:
+        draw.rounded_rectangle(bounds, radius=18, fill=fill, outline="#668078", width=4)
+    draw.line((420, 80, 420, 420), fill="#203c3c", width=10)
+    draw.line((660, 600, 660, 920), fill="#203c3c", width=10)
+    draw.line((70, 440, 1330, 440), fill="#203c3c", width=10)
+    draw.line((70, 580, 1330, 580), fill="#203c3c", width=10)
+    # Entrances/openings
+    for x in (190, 520, 900, 1110):
+        draw.line((x, 435, x + 60, 435), fill="#f4f7f4", width=14)
+        draw.line((x, 585, x + 60, 585), fill="#f4f7f4", width=14)
+    for x, y, color in ((160, 500, "#1d6860"), (520, 250, "#e31b23"), (990, 250, "#2563eb"), (930, 760, "#7c3aed")):
+        draw.ellipse((x - 15, y - 15, x + 15, y + 15), fill=color, outline="white", width=5)
+    draw.rounded_rectangle((40, 30, 420, 68), radius=12, fill="#203c3c")
+    draw.text((58, 40), "TTK DIGITAL CAMPUS  /  DEMO PLAN", fill="white")
+    output = BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
+def _showcase_panorama_png(index: int) -> bytes:
+    """Synthetic equirectangular illustration; never presented as a camera stitch."""
+    palettes = [
+        ((34, 69, 67), (226, 232, 222), (112, 136, 124)),
+        ((41, 70, 83), (238, 232, 215), (170, 112, 68)),
+        ((48, 58, 82), (229, 235, 233), (88, 123, 145)),
+        ((74, 58, 68), (239, 227, 211), (138, 95, 74)),
+    ][index % 4]
+    image = Image.new("RGB", (1024, 512), palettes[0])
+    draw = ImageDraw.Draw(image)
+    # A cylindrical-room illustration with seam-aligned wall/floor/ceiling bands.
+    draw.rectangle((0, 70, 1023, 345), fill=palettes[0])
+    draw.rectangle((0, 345, 1023, 511), fill=palettes[1])
+    draw.polygon(((0, 0), (1023, 0), (1023, 72), (0, 72)), fill=(226, 231, 222))
+    draw.line((0, 345, 1023, 345), fill=(255, 255, 255), width=5)
+    for x in (0, 256, 512, 768, 1023):
+        draw.line((x, 72, x, 345), fill=palettes[2], width=5)
+        draw.line((x, 345, x - 90, 511), fill=(196, 204, 193), width=2)
+        draw.line((x, 345, x + 90, 511), fill=(196, 204, 193), width=2)
+    # Seam-safe architectural doorways and accent panels.
+    for x in (120 + index * 35, 600 + index * 27):
+        draw.rounded_rectangle((x, 122, x + 118, 340), radius=9, fill=(25, 42, 43), outline=(222, 233, 224), width=5)
+        draw.rectangle((x + 12, 135, x + 106, 327), fill=palettes[2])
+    for x in (50, 960):
+        draw.rectangle((x, 125, x + 42, 245), fill=(227, 27, 35))
+    output = BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
+def _showcase_space() -> dict:
+    """One canonical multi-room map that demonstrates the integrated web flows."""
+    map_id = _demo_uuid(201)
+    plan_id = _demo_uuid(202)
+    nodes = [
+        {"id": _demo_uuid(203), "x": 110.0, "y": 250.0},
+        {"id": _demo_uuid(204), "x": 270.0, "y": 250.0},
+        {"id": _demo_uuid(205), "x": 470.0, "y": 150.0},
+        {"id": _demo_uuid(206), "x": 510.0, "y": 380.0},
+    ]
+    pois = [
+        {"id": _demo_uuid(207), "title": "Главный вход и ресепшен", "category": "entrance", "description": "Входная группа, стойка информации и контроль доступа.", "x": 110.0, "y": 250.0, "nav_node_id": nodes[0]["id"]},
+        {"id": _demo_uuid(208), "title": "Демо-стенд ТТК", "category": "booth", "description": "Интерактивная демонстрация цифровой инфраструктуры и сервисов ТТК.", "x": 450.0, "y": 150.0, "nav_node_id": nodes[2]["id"]},
+        {"id": _demo_uuid(209), "title": "Гигабитный Wi-Fi", "category": "wifi", "description": "Гостевая сеть и зона для подключения устройств.", "x": 295.0, "y": 250.0, "nav_node_id": nodes[1]["id"]},
+        {"id": _demo_uuid(210), "title": "Конференц-зал «Цифра»", "category": "hall", "description": "Сцена для презентаций и экспертных сессий.", "x": 510.0, "y": 380.0, "nav_node_id": nodes[3]["id"]},
+        {"id": _demo_uuid(211), "title": "Инфо-стойка", "category": "service_desk", "description": "Помощь гостям и навигация по площадке.", "x": 135.0, "y": 250.0, "nav_node_id": nodes[0]["id"]},
+        {"id": _demo_uuid(212), "title": "Зона регистрации", "category": "custom", "category_label": "Регистрация", "description": "Регистрация участников демонстрации.", "x": 110.0, "y": 210.0, "nav_node_id": nodes[0]["id"]},
+    ]
+    for poi in pois:
+        poi.setdefault("category_label", None)
+    panoramas = []
+    for index, (node, title) in enumerate(zip(nodes, ["Вход и ресепшен", "Центральный проход", "Демо-стенд ТТК", "Конференц-зал Цифра"])):
+        panoramas.append({
+            "id": _demo_uuid(220 + index),
+            "asset_id": _demo_uuid(230 + index),
+            "title": f"360° · {title}",
+            "x": node["x"],
+            "y": node["y"],
+            "nav_node_id": node["id"],
+            "heading_offset_deg": 0.0,
+        })
+    hotspots = []
+    for index, (panorama, poi) in enumerate(zip(panoramas, [pois[0], pois[2], pois[1], pois[3]])):
+        hotspots.append({
+            "id": _demo_uuid(240 + index * 3),
+            "panorama_id": panorama["id"],
+            "kind": "poi",
+            "yaw_deg": 0.0,
+            "pitch_deg": 0.0,
+            "poi_id": poi["id"],
+            "target_panorama_id": None,
+        })
+    for index in range(len(panoramas) - 1):
+        a, b = panoramas[index], panoramas[index + 1]
+        hotspots.extend([
+            {"id": _demo_uuid(241 + index * 3), "panorama_id": a["id"], "kind": "transition", "yaw_deg": 35.0, "pitch_deg": -3.0, "poi_id": None, "target_panorama_id": b["id"]},
+            {"id": _demo_uuid(242 + index * 3), "panorama_id": b["id"], "kind": "transition", "yaw_deg": -145.0, "pitch_deg": -3.0, "poi_id": None, "target_panorama_id": a["id"]},
+        ])
+
+    shapes = [
+        {"id": _demo_uuid(250), "kind": "room", "label": "Лобби и ресепшен", "points": [{"x": 35, "y": 40}, {"x": 200, "y": 40}, {"x": 200, "y": 220}, {"x": 35, "y": 220}]},
+        {"id": _demo_uuid(251), "kind": "room", "label": "Экспозиция ТТК", "points": [{"x": 220, "y": 40}, {"x": 665, "y": 40}, {"x": 665, "y": 220}, {"x": 220, "y": 220}]},
+        {"id": _demo_uuid(252), "kind": "corridor", "label": "Центральная галерея", "points": [{"x": 35, "y": 230}, {"x": 665, "y": 230}, {"x": 665, "y": 285}, {"x": 35, "y": 285}]},
+        {"id": _demo_uuid(253), "kind": "room", "label": "Форум «Цифра»", "points": [{"x": 35, "y": 300}, {"x": 320, "y": 300}, {"x": 320, "y": 460}, {"x": 35, "y": 460}]},
+        {"id": _demo_uuid(254), "kind": "room", "label": "Лаунж и networking", "points": [{"x": 340, "y": 300}, {"x": 665, "y": 300}, {"x": 665, "y": 460}, {"x": 340, "y": 460}]},
+        {"id": _demo_uuid(255), "kind": "wall", "label": "Внешний контур", "points": [{"x": 35, "y": 40}, {"x": 665, "y": 40}, {"x": 665, "y": 460}, {"x": 35, "y": 460}, {"x": 35, "y": 40}]},
+        {"id": _demo_uuid(256), "kind": "wall", "label": "Перегородки", "points": [{"x": 210, "y": 40}, {"x": 210, "y": 220}, {"x": 35, "y": 220}, {"x": 35, "y": 295}, {"x": 330, "y": 295}, {"x": 330, "y": 460}]},
+        {"id": _demo_uuid(257), "kind": "wall", "label": "Перегородки", "points": [{"x": 35, "y": 292}, {"x": 665, "y": 292}, {"x": 665, "y": 295}, {"x": 340, "y": 295}]},
+    ]
+    edges = [
+        {"id": _demo_uuid(260 + i), "a": nodes[i]["id"], "b": nodes[i + 1]["id"]}
+        for i in range(len(nodes) - 1)
+    ]
+    return {
+        "map_id": map_id,
+        "slug": SHOWCASE_SLUG,
+        "title": "TTK Digital Campus · эталонная демо-модель",
+        "description": "Экспертная демонстрация TTKMap: план, POI, маршруты, интерактивная изометрия и связанный 360°-проход. План и панорамы — синтетические иллюстрации, не результаты съёмки или stitching.",
+        "scale": 0.1,
+        "rgb": (29, 104, 96),
+        "plan_asset_id": _demo_uuid(202),
+        "plan_image": _showcase_plan_png(),
+        "shapes": shapes,
+        "nodes": nodes,
+        "edges": edges,
+        "pois": pois,
+        "panoramas": panoramas,
+        "hotspots": hotspots,
+    }
+
+
 def seed_demo_data(force: bool = False) -> dict[str, str]:
     initialize_database()
     settings.media_path.mkdir(parents=True, exist_ok=True)
@@ -51,9 +205,12 @@ def seed_demo_data(force: bool = False) -> dict[str, str]:
             if existing_user is not None and not force:
                 existing_maps = {
                     row["slug"]: row["id"]
-                    for row in connection.execute("SELECT id,slug FROM maps WHERE slug IN (?,?,?)", (PLAZA_SLUG, EXPO_SLUG, HOTEL_SLUG))
+                    for row in connection.execute(
+                        "SELECT id,slug FROM maps WHERE slug IN (?,?,?,?)",
+                        (PLAZA_SLUG, EXPO_SLUG, HOTEL_SLUG, SHOWCASE_SLUG),
+                    )
                 }
-                if len(existing_maps) == 3:
+                if len(existing_maps) == 4:
                     return existing_maps
 
             if existing_user is None:
@@ -349,6 +506,7 @@ def seed_demo_data(force: bool = False) -> dict[str, str]:
                     ],
                 },
             ]
+            spaces.append(_showcase_space())
 
             png_cache: dict[tuple[int, int, int], bytes] = {}
             result_slugs: dict[str, str] = {}
@@ -374,11 +532,34 @@ def seed_demo_data(force: bool = False) -> dict[str, str]:
 
                 for pano in sp["panoramas"]:
                     asset_id = pano["asset_id"]
-                    preview_key, mobile_key, full_key, fw, fh = store.store_asset_variants(asset_id, raw_png, 800, 400)
+                    pano_png = sp.get("panorama_images", {}).get(asset_id)
+                    if pano_png is None and sp.get("plan_asset_id"):
+                        pano_png = _showcase_panorama_png(sp["panoramas"].index(pano))
+                    pano_png = pano_png or raw_png
+                    pano_width, pano_height = (1024, 512) if sp.get("plan_asset_id") else (800, 400)
+                    preview_key, mobile_key, full_key, fw, fh = store.store_asset_variants(
+                        asset_id, pano_png, pano_width, pano_height, kind="panorama"
+                    )
                     connection.execute(
                         "INSERT INTO assets(id,map_id,kind,source,width_px,height_px,projection,haov_deg,vaov_deg,v_offset_deg,preview_key,mobile_key,full_key,created_at) "
                         "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (asset_id, map_id, "panorama", "upload", fw, fh, "equirectangular", 360, 180.0, 0.0, preview_key, mobile_key, full_key, now),
+                    )
+
+                if sp.get("plan_asset_id"):
+                    asset_id = sp["plan_asset_id"]
+                    plan_png = sp["plan_image"]
+                    preview_key, mobile_key, full_key, fw, fh = store.store_asset_variants(
+                        asset_id, plan_png, 1400, 1000
+                    )
+                    connection.execute(
+                        "INSERT INTO assets(id,map_id,kind,source,width_px,height_px,projection,haov_deg,vaov_deg,v_offset_deg,preview_key,mobile_key,full_key,created_at) "
+                        "VALUES(?,?, 'plan','upload',?,?,NULL,NULL,NULL,NULL,?,?,?,?)",
+                        (asset_id, map_id, fw, fh, preview_key, mobile_key, full_key, now),
+                    )
+                    connection.execute(
+                        "INSERT INTO map_backgrounds(map_id,asset_id,asset_kind) VALUES(?,?,'plan')",
+                        (map_id, asset_id),
                     )
 
                 for shape in sp["shapes"]:

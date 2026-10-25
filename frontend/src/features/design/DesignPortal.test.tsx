@@ -26,6 +26,7 @@ vi.mock('../../shared/router', () => ({ navigate: vi.fn() }));
 import { ApiClientError, apiClient } from '../../shared/api';
 import { navigate } from '../../shared/router';
 import { DesignPortal } from './DesignPortal';
+import { SHOWCASE_MAP_SLUG } from '../../shared/showcase';
 
 const organizerSession = {
   user: { id: 'd0c60d5e-818b-4eb3-bce2-21807f98d39e', email: 'organizer@example.org', role: 'organizer' as const },
@@ -56,6 +57,24 @@ describe('Design portal backend wiring', () => {
       password: 'long-enough-password',
     }));
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/organize'));
+  });
+
+  it('opens the canonical expert demo without requiring sign-in', async () => {
+    render(<DesignPortal />);
+    await screen.findByText('Пространства и объекты');
+    fireEvent.click(screen.getByRole('button', { name: /Показать эталонную демо-карту/ }));
+    expect(navigate).toHaveBeenCalledWith(`/m/${SHOWCASE_MAP_SLUG}`);
+    expect(apiClient.login).not.toHaveBeenCalled();
+  });
+
+  it('opens a pasted public map slug from the shared search box', async () => {
+    render(<DesignPortal />);
+    await screen.findByText('Пространства и объекты');
+    fireEvent.change(screen.getByLabelText('Ссылка или код карты'), {
+      target: { value: `https://map.test/m/${SHOWCASE_MAP_SLUG}` },
+    });
+    fireEvent.submit(screen.getByLabelText('Ссылка или код карты').closest('form')!);
+    expect(navigate).toHaveBeenCalledWith(`/m/${SHOWCASE_MAP_SLUG}`);
   });
 
   it('registers a new business user and redirects directly to organizer workspace', async () => {

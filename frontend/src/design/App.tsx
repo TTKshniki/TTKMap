@@ -586,6 +586,7 @@ export const App: React.FC<DesignAppProps> = ({
             toggleFavorite={toggleFavorite}
             triggerMetallicFlash={triggerMetallicFlash}
             showNotification={showNotification}
+            onOpenPublicMap={onOpenPublicMap}
           />
         )}
 
@@ -613,10 +614,11 @@ export const App: React.FC<DesignAppProps> = ({
             toggleFavorite={toggleFavorite}
             showNotification={showNotification}
             zoomLevel={zoomLevel}
-            zoomInMap={zoomInMap}
-            zoomOutMap={zoomOutMap}
-            resetMapZoom={resetMapZoom}
-          />
+             zoomInMap={zoomInMap}
+             zoomOutMap={zoomOutMap}
+             resetMapZoom={resetMapZoom}
+             publicMap={publicMapCache[SPACE_SLUGS[currentSpaceKey]] ?? null}
+           />
         )}
 
         {currentView === 'auth' && (
