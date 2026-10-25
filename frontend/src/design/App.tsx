@@ -18,6 +18,7 @@ import { AuthView } from './components/AuthView';
 import { CabinetView } from './components/CabinetView';
 import { Modals } from './components/Modals';
 import { navigate } from '../shared/router';
+import { validatePassword } from '../shared/passwordValidation';
 
 export interface DesignAppProps {
   initialUser?: UserProfile | null;
@@ -341,8 +342,9 @@ export const App: React.FC<DesignAppProps> = ({
       );
       return;
     }
-    if (authForm.password.length < 12) {
-      setAuthError(lang === 'ru' ? 'Пароль должен содержать от 12 до 128 символов.' : 'Password must contain 12 to 128 characters.');
+    const validation = validatePassword(authForm.password, authForm.email);
+    if (!validation.valid) {
+      setAuthError(validation.error || 'Ненадежный пароль.');
       return;
     }
     if (authForm.confirmPassword && authForm.password !== authForm.confirmPassword) {
@@ -367,6 +369,19 @@ export const App: React.FC<DesignAppProps> = ({
         setCurrentView('cabinet');
       }
     } catch (error) {
+      if (error && typeof error === 'object' && 'body' in error) {
+        const body = (error as any).body;
+        if (body?.error?.issues?.length) {
+          const issueMsg = body.error.issues
+            .map((i: any) => String(i.message || '').replace(/^Value error,\s*/i, ''))
+            .filter(Boolean)
+            .join('; ');
+          if (issueMsg) {
+            setAuthError(issueMsg);
+            return;
+          }
+        }
+      }
       setAuthError(error instanceof Error ? error.message : (lang === 'ru' ? 'Не удалось зарегистрироваться.' : 'Registration failed.'));
     } finally {
       setAuthBusy(false);

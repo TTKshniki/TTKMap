@@ -46,6 +46,13 @@ class RegisterRequest(StrictModel):
             raise ValueError("email must be a valid address")
         return normalized
 
+    @model_validator(mode="after")
+    def validate_password_strength(self) -> RegisterRequest:
+        from backend.app.password_validation import validate_registration_password
+
+        validate_registration_password(self.password, self.email)
+        return self
+
 
 class Session(StrictModel):
     user: User

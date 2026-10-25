@@ -185,6 +185,17 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 )}
               </button>
             </div>
+            {mode === 'register' && (
+              <div className="mt-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 p-2.5 text-[11px] text-slate-500 dark:text-slate-400 space-y-1 border border-slate-100 dark:border-slate-800">
+                <span className="font-bold text-slate-700 dark:text-slate-300 block">Требования к безопасности пароля:</span>
+                <ul className="list-disc pl-4 space-y-0.5 text-[10.5px]">
+                  <li>Не менее 12 символов</li>
+                  <li>Минимум 1 буква, 1 цифра и 1 спецсимвол (!@#$%^&*-_)</li>
+                  <li>Запрещены повторяющиеся шаблоны (123123123123) и последовательности (qwerty, 12345)</li>
+                  <li>Запрещено использовать части логина/email (например, «2010» при логине «Крипер2010»)</li>
+                </ul>
+              </div>
+            )}
           </div>
 
           {mode === 'register' && (
