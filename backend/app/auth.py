@@ -100,15 +100,26 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def create_session(user_id: str) -> tuple[str, str, datetime]:
+def bearer_from_header(authorization: str | None) -> str | None:
+    """Extract Bearer token from Authorization header."""
+    if not authorization:
+        return None
+    if not authorization.startswith("Bearer "):
+        return None
+    return authorization[7:].strip() or None
+
+
+def create_session(user_id: str, kind: str = "cookie") -> tuple[str, str, datetime]:
+    """Bearer sessions keep a CSRF value only to satisfy the Session DTO; it is never checked."""
     raw_token = secrets.token_urlsafe(32)
     token_hash = _token_hash(raw_token)
     csrf_token = secrets.token_hex(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=settings.session_ttl_seconds)
+    ttl = settings.session_ttl_seconds if kind == "cookie" else settings.bearer_ttl_seconds
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
     with database() as connection:
         connection.execute(
-            "INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at) VALUES(?,?,?,?)",
-            (token_hash, user_id, csrf_token, expires_at.isoformat().replace("+00:00", "Z")),
+            "INSERT INTO sessions(token_hash,user_id,csrf_token,expires_at,kind) VALUES(?,?,?,?,?)",
+            (token_hash, user_id, csrf_token, expires_at.isoformat().replace("+00:00", "Z"), kind),
         )
     return raw_token, csrf_token, expires_at
 
@@ -124,18 +135,36 @@ def _session_row(raw_token: str | None):
         ).fetchone()
 
 
-def get_optional_session(ttk_session: Annotated[str | None, Cookie()] = None):
-    return _session_row(ttk_session)
-
-
-def require_session(ttk_session: Annotated[str | None, Cookie()] = None):
+def _request_session(ttk_session: str | None, authorization: str | None):
+    """Resolve exactly one transport. An Authorization header disables the cookie,
+    and a session is only valid on the transport it was issued for."""
+    if authorization is not None:
+        token = bearer_from_header(authorization)
+        row = _session_row(token) if token else None
+        return row if row is not None and row["kind"] == "bearer" else None
     row = _session_row(ttk_session)
+    return row if row is not None and row["kind"] == "cookie" else None
+
+
+def get_optional_session(ttk_session: Annotated[str | None, Cookie()] = None,
+                         authorization: Annotated[str | None, Header()] = None):
+    return _request_session(ttk_session, authorization)
+
+
+def require_session(ttk_session: Annotated[str | None, Cookie()] = None,
+                    authorization: Annotated[str | None, Header()] = None):
+    row = _request_session(ttk_session, authorization)
     if row is None:
         raise ApiError(401, "AUTH_REQUIRED", "Authentication required")
     return row
 
 
-def require_origin(origin: Annotated[str | None, Header()] = None) -> None:
+def require_origin(origin: Annotated[str | None, Header()] = None,
+                   authorization: Annotated[str | None, Header()] = None) -> None:
+    # Browsers cannot attach Authorization cross-site without a CORS preflight
+    # (none is configured), and such requests never fall back to the cookie.
+    if authorization is not None:
+        return
     if origin != settings.app_origin:
         raise ApiError(403, "FORBIDDEN", "Request origin is not allowed")
 
@@ -144,6 +173,9 @@ def require_csrf(
     row,
     csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
 ) -> None:
+    """Bearer sessions are immune to CSRF; cookie sessions require matching CSRF token."""
+    if row["kind"] == "bearer":
+        return
     if not csrf_token or not secrets.compare_digest(csrf_token, row["csrf_token"]):
         raise ApiError(403, "FORBIDDEN", "CSRF token is invalid")
 

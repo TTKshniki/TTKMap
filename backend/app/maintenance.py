@@ -49,7 +49,7 @@ def backup(destination: Path):
             hashes[key] = _digest(target)
         # Only a complete backup receives a manifest.
         (destination / 'manifest.json').write_text(json.dumps({
-            'schema_version': SCHEMA_VERSION,
+            'schema_version': snapshot.execute('PRAGMA user_version').fetchone()[0],
             'created_at': datetime.now(timezone.utc).isoformat(),
             'database_sha256': _digest(destination / 'database.sqlite'),
             'media_sha256': hashes,
@@ -58,9 +58,9 @@ def backup(destination: Path):
         snapshot.close()
 
 
-def _verify_backup(source: Path):
+def _verify_backup(source: Path, expected_version: int = SCHEMA_VERSION):
     manifest = json.loads((source / 'manifest.json').read_text(encoding='utf-8'))
-    if manifest['schema_version'] != SCHEMA_VERSION:
+    if manifest['schema_version'] != expected_version:
         raise ValueError('Backup needs an explicit schema migration')
     if _digest(source / 'database.sqlite') != manifest['database_sha256']:
         raise ValueError('Backup database checksum mismatch')
@@ -68,7 +68,7 @@ def _verify_backup(source: Path):
     try:
         if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or db.execute('PRAGMA foreign_key_check').fetchall():
             raise ValueError('Backup integrity check failed')
-        if db.execute('PRAGMA user_version').fetchone()[0] != SCHEMA_VERSION:
+        if db.execute('PRAGMA user_version').fetchone()[0] != expected_version:
             raise ValueError('Backup needs an explicit schema migration')
         keys = _media_keys(db)
         if keys != manifest['media_sha256'].keys():
@@ -104,7 +104,7 @@ def collect_orphans(*, apply=False, grace_seconds=86400, retention_days=30):
                 raise ValueError('Drain or cancel queued/running captures before maintenance')
             modifier = f'-{retention_days} days'
             db.execute("DELETE FROM captures WHERE state IN ('succeeded','failed','cancelled') AND julianday(finished_at)<julianday('now',?)", (modifier,))
-            db.execute("DELETE FROM assets WHERE julianday(created_at)<julianday('now',?) AND id NOT IN (SELECT asset_id FROM map_backgrounds UNION SELECT asset_id FROM panoramas UNION SELECT result_asset_id FROM captures WHERE result_asset_id IS NOT NULL)", (modifier,))
+            db.execute("DELETE FROM assets WHERE julianday(created_at)<julianday('now',?) AND id NOT IN (SELECT asset_id FROM map_backgrounds UNION SELECT asset_id FROM panoramas UNION SELECT background_asset_id FROM floors WHERE background_asset_id IS NOT NULL UNION SELECT result_asset_id FROM captures WHERE result_asset_id IS NOT NULL)", (modifier,))
             keys = _media_keys(db)
             db.execute("DELETE FROM sessions WHERE julianday(expires_at)<=julianday('now')")
             db.commit() if apply else db.rollback()
@@ -122,3 +122,38 @@ def collect_orphans(*, apply=False, grace_seconds=86400, retention_days=30):
             if apply:
                 path.unlink()
     return sorted(candidates)
+
+
+MIGRATIONS = {1: Path(__file__).resolve().parents[2] / 'CONTRACTS' / 'migrations' / '0002_floors_tokens_analytics.sql'}
+
+
+def migrate(backup_destination: Path):
+    """Back up, verify the backup, then apply each pending step in one transaction.
+    API and worker must be stopped. Any failure rolls back and leaves the old version."""
+    with database() as db:
+        version = db.execute('PRAGMA user_version').fetchone()[0]
+    if version == SCHEMA_VERSION:
+        return version
+    if version not in MIGRATIONS:
+        raise ValueError(f'No migration path from schema version {version}')
+    backup(backup_destination)
+    _verify_backup(backup_destination, expected_version=version)
+    while version != SCHEMA_VERSION:
+        with database() as db:
+            try:
+                # executescript issues no COMMIT here; checks run before commit.
+                db.executescript('BEGIN IMMEDIATE;\n' + MIGRATIONS[version].read_text(encoding='utf-8'))
+                if db.execute('PRAGMA foreign_key_check').fetchall():
+                    raise ValueError('Migration produced foreign key violations')
+                if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    raise ValueError('Migration integrity check failed')
+                new_version = db.execute('PRAGMA user_version').fetchone()[0]
+                if new_version <= version:
+                    raise ValueError('Migration did not advance the schema version')
+                db.execute('COMMIT')
+            except BaseException:
+                if db.in_transaction:
+                    db.execute('ROLLBACK')
+                raise
+        version = new_version
+    return version

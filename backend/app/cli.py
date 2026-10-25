@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import getpass
 from pathlib import Path
-from backend.app.maintenance import backup, restore, collect_orphans
+from backend.app.maintenance import backup, restore, collect_orphans, migrate
 
 from backend.app.auth import create_organizer
 from backend.app.db import initialize_database
@@ -23,6 +23,9 @@ def main() -> None:
     gc.add_argument('--apply', action='store_true')
     gc.add_argument('--retention-days', type=int, default=30)
     gc.add_argument('--services-stopped', action='store_true')
+    migrate_parser = subparsers.add_parser('migrate')
+    migrate_parser.add_argument('--backup', type=Path, required=True)
+    migrate_parser.add_argument('--services-stopped', action='store_true')
     organizer = subparsers.add_parser("create-organizer")
     organizer.add_argument("--email", required=True)
     args = parser.parse_args()
@@ -31,6 +34,11 @@ def main() -> None:
         return
     if args.command == 'restore':
         restore(args.source, args.destination)
+        return
+    if args.command == 'migrate':
+        if not args.services_stopped:
+            raise SystemExit('Stop API and worker; pass --services-stopped to migrate')
+        print(f'schema version {migrate(args.backup)}')
         return
     if args.command == 'gc':
         if args.apply and not args.services_stopped:

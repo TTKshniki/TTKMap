@@ -160,7 +160,11 @@ def get_media(
                     "SELECT 1 FROM panoramas WHERE map_id=? AND asset_id=? LIMIT 1",
                     (asset["map_id"], asset_id),
                 ).fetchone()
-                is_publicly_attached = bg is not None or pano is not None
+                floor_bg = connection.execute(
+                    "SELECT 1 FROM floors WHERE map_id=? AND background_asset_id=? LIMIT 1",
+                    (asset["map_id"], asset_id),
+                ).fetchone()
+                is_publicly_attached = bg is not None or pano is not None or floor_bg is not None
 
             if not (is_owner or is_publicly_attached):
                 raise ApiError(404, "NOT_FOUND", "Media asset not found")

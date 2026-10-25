@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Cookie, Depends, Header, Request, Response
 
 from backend.app.auth import (
+    bearer_from_header,
     check_login_rate_limit,
     release_successful_login,
     create_session,
@@ -59,8 +60,9 @@ def logout(
     _: None = Depends(require_origin),
     row=Depends(require_session),
     ttk_session: str | None = Cookie(default=None),
+    authorization: str | None = Header(default=None),
     csrf_token: str | None = Header(default=None, alias="X-CSRF-Token"),
 ):
     require_csrf(row, csrf_token)
-    revoke_session(ttk_session)
+    revoke_session(bearer_from_header(authorization) if row["kind"] == "bearer" else ttk_session)
     response.delete_cookie("ttk_session", httponly=True, secure=settings.cookie_secure, samesite="lax", path="/")

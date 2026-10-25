@@ -40,18 +40,62 @@ def _validate_document(connection, map_row, document: MapDocument) -> None:
         if bg_row is None or bg_row["kind"] != "plan":
             issues.append({"path": "background_asset_id", "message": "Background asset must belong to this map and have kind 'plan'"})
 
+    building_ids: set[str] = set()
+    for idx, building in enumerate(document.buildings or []):
+        path_prefix = f"buildings.{idx}"
+        if building.id in building_ids:
+            issues.append({"path": f"{path_prefix}.id", "message": "Duplicate building id"})
+        building_ids.add(building.id)
+        if building.outline_json is not None:
+            for p_idx, pt in enumerate(building.outline_json):
+                check_bounds(pt.x, pt.y, f"{path_prefix}.outline_json.{p_idx}")
+
+    floor_ids: set[str] = set()
+    floor_levels: dict[str, set[int]] = {}
+    for idx, floor in enumerate(document.floors or []):
+        path_prefix = f"floors.{idx}"
+        if floor.id in floor_ids:
+            issues.append({"path": f"{path_prefix}.id", "message": "Duplicate floor id"})
+        floor_ids.add(floor.id)
+        if floor.building_id not in building_ids:
+            issues.append({"path": f"{path_prefix}.building_id", "message": "Floor building_id does not exist"})
+        else:
+            levels = floor_levels.setdefault(floor.building_id, set())
+            if floor.level in levels:
+                issues.append({"path": f"{path_prefix}.level", "message": "Duplicate floor level in building"})
+            levels.add(floor.level)
+        if floor.background_asset_id is not None:
+            bg_row = connection.execute(
+                "SELECT kind FROM assets WHERE map_id=? AND id=?",
+                (map_id, floor.background_asset_id),
+            ).fetchone()
+            if bg_row is None or bg_row["kind"] != "plan":
+                issues.append({"path": f"{path_prefix}.background_asset_id", "message": "Floor background must belong to this map and have kind 'plan'"})
+
+    # A v1 client omits `floors`; a full replace would silently delete them.
+    if document.floors is None and connection.execute("SELECT 1 FROM floors WHERE map_id=? LIMIT 1", (map_id,)).fetchone():
+        raise ApiError(409, "CONFLICT", "Map has floors; this client must send buildings and floors to save it")
+
     tables = {'shapes': document.shapes, 'nav_nodes': document.nodes, 'nav_edges': document.edges,
-              'pois': document.pois, 'panoramas': document.panoramas, 'hotspots': document.hotspots}
+              'pois': document.pois, 'panoramas': document.panoramas, 'hotspots': document.hotspots,
+              'buildings': document.buildings or [], 'floors': document.floors or []}
     for table, entities in tables.items():
         for entity in entities:
             if connection.execute(f'SELECT 1 FROM {table} WHERE id=? AND map_id<>?', (entity.id, map_id)).fetchone():
                 issues.append({'path': table, 'message': 'Entity ID already in use; assign a new UUID'})
+    def check_floor(floor_id: str | None, path: str) -> None:
+        if floor_ids and floor_id is None:
+            issues.append({"path": f"{path}.floor_id", "message": "floor_id is required when the map has floors"})
+        elif floor_id is not None and floor_id not in floor_ids:
+            issues.append({"path": f"{path}.floor_id", "message": "floor_id does not exist"})
+
     shape_ids: set[str] = set()
     for idx, shape in enumerate(document.shapes):
         path_prefix = f"shapes.{idx}"
         if shape.id in shape_ids:
             issues.append({"path": f"{path_prefix}.id", "message": "Duplicate shape id"})
         shape_ids.add(shape.id)
+        check_floor(shape.floor_id, path_prefix)
         for p_idx, pt in enumerate(shape.points):
             check_bounds(pt.x, pt.y, f"{path_prefix}.points.{p_idx}")
         if shape.kind == "wall":
@@ -85,6 +129,7 @@ def _validate_document(connection, map_row, document: MapDocument) -> None:
         if node.id in nodes_by_id:
             issues.append({"path": f"{path_prefix}.id", "message": "Duplicate node id"})
         nodes_by_id[node.id] = node
+        check_floor(node.floor_id, path_prefix)
         check_bounds(node.x, node.y, path_prefix)
 
     edge_ids: set[str] = set()
@@ -104,7 +149,12 @@ def _validate_document(connection, map_row, document: MapDocument) -> None:
         edge_pairs.add(pair)
         if edge.a in nodes_by_id and edge.b in nodes_by_id:
             na, nb = nodes_by_id[edge.a], nodes_by_id[edge.b]
-            if abs(na.x - nb.x) < 1e-6 and abs(na.y - nb.y) < 1e-6:
+            if na.floor_id != nb.floor_id:
+                if edge.kind == "walk":
+                    issues.append({"path": f"{path_prefix}.kind", "message": "An edge between floors must be door, stairs, elevator or ramp"})
+                if edge.cost_units is None:
+                    issues.append({"path": f"{path_prefix}.cost_units", "message": "An edge between floors requires cost_units"})
+            elif abs(na.x - nb.x) < 1e-6 and abs(na.y - nb.y) < 1e-6:
                 issues.append({"path": path_prefix, "message": "Edge endpoints cannot have identical coordinates"})
 
     poi_ids: set[str] = set()
@@ -113,9 +163,12 @@ def _validate_document(connection, map_row, document: MapDocument) -> None:
         if poi.id in poi_ids:
             issues.append({"path": f"{path_prefix}.id", "message": "Duplicate POI id"})
         poi_ids.add(poi.id)
+        check_floor(poi.floor_id, path_prefix)
         check_bounds(poi.x, poi.y, path_prefix)
         if poi.nav_node_id is not None and poi.nav_node_id not in nodes_by_id:
             issues.append({"path": f"{path_prefix}.nav_node_id", "message": "POI nav_node_id does not exist"})
+        elif poi.nav_node_id is not None and nodes_by_id[poi.nav_node_id].floor_id != poi.floor_id:
+            issues.append({"path": f"{path_prefix}.floor_id", "message": "POI must be on the floor of its nav node"})
 
     panorama_ids: set[str] = set()
     panorama_nodes: set[str] = set()
@@ -124,6 +177,7 @@ def _validate_document(connection, map_row, document: MapDocument) -> None:
         if panorama.id in panorama_ids:
             issues.append({"path": f"{path_prefix}.id", "message": "Duplicate panorama id"})
         panorama_ids.add(panorama.id)
+        check_floor(panorama.floor_id, path_prefix)
         check_bounds(panorama.x, panorama.y, path_prefix)
         asset_row = connection.execute(
             "SELECT kind FROM assets WHERE map_id=? AND id=?",
@@ -134,6 +188,8 @@ def _validate_document(connection, map_row, document: MapDocument) -> None:
         if panorama.nav_node_id is not None:
             if panorama.nav_node_id not in nodes_by_id:
                 issues.append({"path": f"{path_prefix}.nav_node_id", "message": "Panorama nav_node_id does not exist"})
+            elif nodes_by_id[panorama.nav_node_id].floor_id != panorama.floor_id:
+                issues.append({"path": f"{path_prefix}.floor_id", "message": "Panorama must be on the floor of its nav node"})
             elif panorama.nav_node_id in panorama_nodes:
                 issues.append({"path": f"{path_prefix}.nav_node_id", "message": "At most one panorama can be attached to a navigation node"})
             else:

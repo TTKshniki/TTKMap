@@ -119,21 +119,28 @@ def replace_document(map_id: str, document: MapDocument, response: Response, if_
             connection.execute("DELETE FROM nav_edges WHERE map_id=?", (map_id,))
             connection.execute("DELETE FROM nav_nodes WHERE map_id=?", (map_id,))
             connection.execute("DELETE FROM shapes WHERE map_id=?", (map_id,))
+            connection.execute("DELETE FROM floors WHERE map_id=?", (map_id,))
+            connection.execute("DELETE FROM buildings WHERE map_id=?", (map_id,))
             connection.execute("DELETE FROM map_backgrounds WHERE map_id=?", (map_id,))
             if document.background_asset_id is not None:
                 connection.execute("INSERT INTO map_backgrounds(map_id,asset_id) VALUES(?,?)", (map_id, document.background_asset_id))
             connection.execute("UPDATE maps SET title=?,description=?,is_published=?,scale_m_per_unit=?,max_walk_gap_units=?,revision=revision+1,updated_at=? WHERE id=?", (document.title, document.description, int(document.is_published), document.scale_m_per_unit, document.max_walk_gap_units, now, map_id))
+            for building in document.buildings or []:
+                outline = None if building.outline_json is None else json.dumps([point.model_dump() for point in building.outline_json], separators=(",", ":"))
+                connection.execute("INSERT INTO buildings(id,map_id,title,kind,outline_json,sort_order) VALUES(?,?,?,?,?,?)", (building.id, map_id, building.title, building.kind, outline, building.sort_order))
+            for floor in document.floors or []:
+                connection.execute("INSERT INTO floors(id,map_id,building_id,level,title,elevation_m,height_m,background_asset_id) VALUES(?,?,?,?,?,?,?,?)", (floor.id, map_id, floor.building_id, floor.level, floor.title, floor.elevation_m, floor.height_m, floor.background_asset_id))
             for shape in document.shapes:
                 points_json = json.dumps([point.model_dump() for point in shape.points], separators=(",", ":"))
-                connection.execute("INSERT INTO shapes(id,map_id,kind,label,points_json) VALUES(?,?,?,?,?)", (shape.id, map_id, shape.kind, shape.label, points_json))
+                connection.execute("INSERT INTO shapes(id,map_id,kind,label,points_json,floor_id,height_m) VALUES(?,?,?,?,?,?,?)", (shape.id, map_id, shape.kind, shape.label, points_json, shape.floor_id, shape.height_m))
             for node in document.nodes:
-                connection.execute("INSERT INTO nav_nodes(id,map_id,x,y) VALUES(?,?,?,?)", (node.id, map_id, node.x, node.y))
+                connection.execute("INSERT INTO nav_nodes(id,map_id,x,y,floor_id) VALUES(?,?,?,?,?)", (node.id, map_id, node.x, node.y, node.floor_id))
             for edge in document.edges:
-                connection.execute("INSERT INTO nav_edges(id,map_id,a,b) VALUES(?,?,?,?)", (edge.id, map_id, edge.a, edge.b))
+                connection.execute("INSERT INTO nav_edges(id,map_id,a,b,kind,cost_units) VALUES(?,?,?,?,?,?)", (edge.id, map_id, edge.a, edge.b, edge.kind, edge.cost_units))
             for poi in document.pois:
-                connection.execute("INSERT INTO pois(id,map_id,title,category,category_label,description,x,y,nav_node_id) VALUES(?,?,?,?,?,?,?,?,?)", (poi.id, map_id, poi.title, poi.category, poi.category_label, poi.description, poi.x, poi.y, poi.nav_node_id))
+                connection.execute("INSERT INTO pois(id,map_id,title,category,category_label,description,x,y,nav_node_id,floor_id) VALUES(?,?,?,?,?,?,?,?,?,?)", (poi.id, map_id, poi.title, poi.category, poi.category_label, poi.description, poi.x, poi.y, poi.nav_node_id, poi.floor_id))
             for panorama in document.panoramas:
-                connection.execute("INSERT INTO panoramas(id,map_id,asset_id,title,x,y,nav_node_id,heading_offset_deg) VALUES(?,?,?,?,?,?,?,?)", (panorama.id, map_id, panorama.asset_id, panorama.title, panorama.x, panorama.y, panorama.nav_node_id, panorama.heading_offset_deg))
+                connection.execute("INSERT INTO panoramas(id,map_id,asset_id,title,x,y,nav_node_id,heading_offset_deg,floor_id) VALUES(?,?,?,?,?,?,?,?,?)", (panorama.id, map_id, panorama.asset_id, panorama.title, panorama.x, panorama.y, panorama.nav_node_id, panorama.heading_offset_deg, panorama.floor_id))
             for hotspot in document.hotspots:
                 connection.execute("INSERT INTO hotspots(id,map_id,panorama_id,kind,yaw_deg,pitch_deg,poi_id,target_panorama_id) VALUES(?,?,?,?,?,?,?,?)", (hotspot.id, map_id, hotspot.panorama_id, hotspot.kind, hotspot.yaw_deg, hotspot.pitch_deg, hotspot.poi_id, hotspot.target_panorama_id))
             refreshed = connection.execute("SELECT * FROM maps WHERE id=?", (map_id,)).fetchone()

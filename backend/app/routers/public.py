@@ -8,6 +8,7 @@ from fastapi import APIRouter, Header, Response
 from backend.app.db import database, transaction
 from backend.app.errors import ApiError
 from backend.app.modules.maps.snapshots import _snapshot
+from backend.app.config import settings
 from backend.app.schemas import RouteRequest
 
 
@@ -36,6 +37,42 @@ def get_public_map(slug: str, response: Response, if_none_match: str | None = He
             return _snapshot(connection, row, public=True)
 
 
+@router.get("/maps/{slug}/offline-package")
+def offline_package(slug: str, response: Response, if_none_match: str | None = Header(default=None, alias="If-None-Match")):
+    """Snapshot plus every publicly attached media variant, so a client can mirror the map.
+    Media is immutable: asset id + variant identifies content, size lets clients verify downloads."""
+    with database() as connection:
+        with transaction(connection):
+            row = connection.execute("SELECT * FROM maps WHERE slug=? AND is_published=1", (slug,)).fetchone()
+            if row is None:
+                raise ApiError(404, "NOT_FOUND", "Published map not found")
+            etag = f'"offline-{row["id"]}-v{row["revision"]}"'
+            response.headers["ETag"] = etag
+            response.headers["Cache-Control"] = "no-cache"
+            if _etag_matches(if_none_match, etag):
+                response.status_code = 304
+                return None
+            snapshot = _snapshot(connection, row, public=True)
+            keys = {}
+            if snapshot["assets"]:
+                ids = [asset["id"] for asset in snapshot["assets"]]
+                placeholders = ",".join("?" for _ in ids)
+                for asset in connection.execute(
+                        f"SELECT id,preview_key,mobile_key,full_key FROM assets WHERE map_id=? AND id IN ({placeholders})",
+                        (row["id"], *ids)):
+                    keys[asset["id"]] = asset
+    media_root = settings.media_path.resolve()
+    media = []
+    for asset in snapshot["assets"]:
+        for variant in ("preview", "mobile", "full"):
+            path = (media_root / keys[asset["id"]][f"{variant}_key"]).resolve()
+            if media_root not in path.parents or not path.is_file():
+                raise ApiError(503, "SERVICE_UNAVAILABLE", "Map media is incomplete; offline package unavailable")
+            media.append({"asset_id": asset["id"], "kind": asset["kind"], "variant": variant,
+                          "url": asset[f"{variant}_url"], "size_bytes": path.stat().st_size})
+    return {"revision": snapshot["revision"], "etag": etag, "snapshot": snapshot, "media": media}
+
+
 @router.post("/maps/{slug}/route")
 def build_route(slug: str, payload: RouteRequest):
     with database() as connection:
@@ -49,9 +86,10 @@ def build_route(slug: str, payload: RouteRequest):
             if payload.from_node_id not in nodes or payload.to_node_id not in nodes:
                 raise ApiError(422, "VALIDATION_ERROR", "Route node does not exist")
             adjacency: dict[str, list[tuple[str, float]]] = {node_id: [] for node_id in nodes}
-            for edge in connection.execute("SELECT a,b FROM nav_edges WHERE map_id=?", (row["id"],)):
+            for edge in connection.execute("SELECT a,b,cost_units FROM nav_edges WHERE map_id=?", (row["id"],)):
                 a, b = edge["a"], edge["b"]
-                weight = math.hypot(nodes[a]["x"] - nodes[b]["x"], nodes[a]["y"] - nodes[b]["y"])
+                # Stairs/elevators join stacked nodes; their explicit cost replaces plan distance.
+                weight = edge["cost_units"] if edge["cost_units"] is not None else math.hypot(nodes[a]["x"] - nodes[b]["x"], nodes[a]["y"] - nodes[b]["y"])
                 adjacency[a].append((b, weight))
                 adjacency[b].append((a, weight))
             start, goal = payload.from_node_id, payload.to_node_id

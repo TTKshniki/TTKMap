@@ -12,6 +12,7 @@ class Settings:
     media_path: Path
     cookie_secure: bool
     session_ttl_seconds: int
+    bearer_ttl_seconds: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -21,6 +22,7 @@ class Settings:
             media_path=Path(os.getenv("MEDIA_PATH", "data/media")).resolve(),
             cookie_secure=os.getenv("COOKIE_SECURE", "false").lower() in {"1", "true", "yes"},
             session_ttl_seconds=int(os.getenv("SESSION_TTL_SECONDS", "43200")),
+            bearer_ttl_seconds=int(os.getenv("BEARER_TTL_SECONDS", str(30 * 86400))),
         )
 
 

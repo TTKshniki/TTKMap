@@ -9,7 +9,7 @@ from backend.app.config import settings
 
 
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "CONTRACTS" / "db_schema.sql"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def connect(database_path: Path | str | None = None) -> sqlite3.Connection:

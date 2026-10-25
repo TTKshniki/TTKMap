@@ -84,6 +84,58 @@ paths:
           $ref: '#/components/responses/Error'
         '403':
           $ref: '#/components/responses/Error'
+  /api/v1/tokens:
+    post:
+      operationId: issueToken
+      summary: Exchange credentials for a Bearer token (native clients)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '201':
+          description: Bearer token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BearerToken'
+        '401':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: revokeCurrentToken
+      summary: Revoke the Bearer token used for this request
+      responses:
+        '204':
+          description: Token revoked
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/v1/tokens/all:
+    delete:
+      operationId: revokeAllTokens
+      summary: Revoke all Bearer tokens (e.g. lost device); browser sessions stay
+      parameters:
+      - $ref: '#/components/parameters/Origin'
+      - $ref: '#/components/parameters/CsrfToken'
+      responses:
+        '204':
+          description: All Bearer tokens revoked
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
   /api/v1/maps:
     get:
       operationId: listMaps
@@ -521,6 +573,85 @@ paths:
           $ref: '#/components/responses/Error'
         '500':
           $ref: '#/components/responses/Error'
+  /api/v1/public/maps/{slug}/offline-package:
+    get:
+      operationId: getOfflinePackage
+      summary: Get offline package manifest
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/Slug'
+      responses:
+        '200':
+          description: Offline package manifest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfflinePackage'
+        '404':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/v1/public/maps/{slug}/analytics:
+    post:
+      operationId: submitAnalytics
+      summary: Submit a batch of visitor events (idempotent by event id, safe to retry from an offline queue)
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/Slug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalyticsBatch'
+      responses:
+        '200':
+          description: Batch processed; rejected events are counted, never silently stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsBatchResult'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/v1/maps/{map_id}/analytics:
+    get:
+      operationId: getAnalyticsReport
+      summary: Views and POI popularity for the map owner (UTC days, default last 30)
+      parameters:
+      - $ref: '#/components/parameters/MapId'
+      - in: query
+        name: from
+        required: false
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: to
+        required: false
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: Aggregated analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsReport'
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     SessionCookie:
@@ -711,6 +842,217 @@ components:
           pattern: ^[0-9a-f]{64}$
         expires_at:
           $ref: '#/components/schemas/Timestamp'
+    BearerToken:
+      type: object
+      additionalProperties: false
+      required:
+      - token
+      - token_type
+      - expires_at
+      - user
+      properties:
+        token:
+          type: string
+          description: Opaque Bearer token for Authorization header
+        token_type:
+          type: string
+          enum:
+          - bearer
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        user:
+          $ref: '#/components/schemas/User'
+    AnalyticsEvent:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - event_type
+      - occurred_at
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        event_type:
+          type: string
+          enum:
+          - map_view
+          - poi_click
+          - route_built
+        poi_id:
+          allOf:
+          - $ref: '#/components/schemas/UUID'
+          nullable: true
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+    AnalyticsBatch:
+      type: object
+      additionalProperties: false
+      required:
+      - visitor_id
+      - source
+      - events
+      properties:
+        visitor_id:
+          $ref: '#/components/schemas/UUID'
+        source:
+          type: string
+          enum:
+          - web
+          - embed
+          - android
+        events:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/AnalyticsEvent'
+    AnalyticsBatchResult:
+      type: object
+      additionalProperties: false
+      required:
+      - accepted
+      - duplicates
+      - rejected
+      properties:
+        accepted:
+          type: integer
+        duplicates:
+          type: integer
+        rejected:
+          type: integer
+    AnalyticsReport:
+      type: object
+      additionalProperties: false
+      required:
+      - from
+      - to
+      - totals
+      - unique_visitors
+      - by_day
+      - top_pois
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        totals:
+          type: object
+          additionalProperties: false
+          required:
+          - map_view
+          - poi_click
+          - route_built
+          properties:
+            map_view:
+              type: integer
+            poi_click:
+              type: integer
+            route_built:
+              type: integer
+        unique_visitors:
+          type: integer
+        by_day:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - date
+            - map_view
+            - poi_click
+            - route_built
+            properties:
+              date:
+                type: string
+                format: date
+              map_view:
+                type: integer
+              poi_click:
+                type: integer
+              route_built:
+                type: integer
+        top_pois:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - poi_id
+            - title
+            - clicks
+            properties:
+              poi_id:
+                $ref: '#/components/schemas/UUID'
+              title:
+                type: string
+                nullable: true
+              clicks:
+                type: integer
+    Building:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - title
+      - kind
+      - sort_order
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        kind:
+          type: string
+          enum:
+          - building
+          - outdoor
+        outline_json:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/Point'
+        sort_order:
+          type: integer
+    Floor:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - building_id
+      - level
+      - title
+      - elevation_m
+      - height_m
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        building_id:
+          $ref: '#/components/schemas/UUID'
+        level:
+          type: integer
+          minimum: -20
+          maximum: 200
+        title:
+          type: string
+          minLength: 1
+          maxLength: 160
+        elevation_m:
+          type: number
+          minimum: -500
+          maximum: 2000
+        height_m:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          maximum: 100
+        background_asset_id:
+          allOf:
+          - $ref: '#/components/schemas/UUID'
+          nullable: true
     CreateMapRequest:
       type: object
       additionalProperties: false
@@ -787,6 +1129,16 @@ components:
           maxItems: 512
           items:
             $ref: '#/components/schemas/Point'
+        floor_id:
+          allOf:
+          - $ref: '#/components/schemas/UUID'
+          nullable: true
+        height_m:
+          type: number
+          nullable: true
+          minimum: 0
+          exclusiveMinimum: true
+          maximum: 100
     NavNode:
       type: object
       additionalProperties: false
@@ -805,6 +1157,10 @@ components:
           type: number
           minimum: 0
           maximum: 100000
+        floor_id:
+          allOf:
+          - $ref: '#/components/schemas/UUID'
+          nullable: true
     NavEdge:
       type: object
       additionalProperties: false
@@ -819,6 +1175,19 @@ components:
           $ref: '#/components/schemas/UUID'
         b:
           $ref: '#/components/schemas/UUID'
+        kind:
+          type: string
+          enum:
+          - walk
+          - door
+          - stairs
+          - elevator
+          - ramp
+        cost_units:
+          type: number
+          nullable: true
+          minimum: 0
+          exclusiveMinimum: true
     Poi:
       type: object
       additionalProperties: false
@@ -867,6 +1236,10 @@ components:
           allOf:
           - $ref: '#/components/schemas/UUID'
           nullable: true
+        floor_id:
+          allOf:
+          - $ref: '#/components/schemas/UUID'
+          nullable: true
     Panorama:
       type: object
       additionalProperties: false
@@ -904,6 +1277,58 @@ components:
           minimum: -180
           maximum: 180
           exclusiveMaximum: true
+        floor_id:
+          allOf:
+          - $ref: '#/components/schemas/UUID'
+          nullable: true
+    OfflinePackage:
+      type: object
+      additionalProperties: false
+      description: Everything a client needs to show a published map without network. Media is immutable, so asset id + variant identifies content.
+      required:
+      - revision
+      - etag
+      - snapshot
+      - media
+      properties:
+        revision:
+          type: integer
+        etag:
+          type: string
+        snapshot:
+          $ref: '#/components/schemas/PublicMap'
+        media:
+          type: array
+          items:
+            $ref: '#/components/schemas/OfflineMediaEntry'
+    OfflineMediaEntry:
+      type: object
+      additionalProperties: false
+      required:
+      - asset_id
+      - kind
+      - variant
+      - url
+      - size_bytes
+      properties:
+        asset_id:
+          $ref: '#/components/schemas/UUID'
+        kind:
+          type: string
+          enum:
+          - plan
+          - panorama
+        variant:
+          type: string
+          enum:
+          - preview
+          - mobile
+          - full
+        url:
+          type: string
+        size_bytes:
+          type: integer
+          minimum: 0
     Hotspot:
       type: object
       additionalProperties: false
@@ -983,6 +1408,16 @@ components:
           allOf:
           - $ref: '#/components/schemas/UUID'
           nullable: true
+        buildings:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/Building'
+        floors:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/Floor'
         shapes:
           type: array
           items:

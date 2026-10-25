@@ -43,7 +43,7 @@ def check_schema() -> None:
     connection = sqlite3.connect(":memory:")
     connection.executescript((ROOT / "CONTRACTS/db_schema.sql").read_text(encoding="utf-8"))
     assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
     assert not connection.execute("PRAGMA foreign_key_check").fetchall()
     tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"maps", "pois", "panoramas", "hotspots", "captures", "capture_frames"} <= tables

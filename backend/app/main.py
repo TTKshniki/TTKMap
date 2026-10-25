@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.app.config import settings
 from backend.app.db import database, initialize_database
 from backend.app.errors import install_error_handlers
-from backend.app.routers import auth, captures, maps, media, public
+from backend.app.routers import analytics, auth, captures, maps, media, public, tokens
 
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -44,9 +44,11 @@ def create_app() -> FastAPI:
     app.state.media_slots = asyncio.Semaphore(2)
     install_error_handlers(app)
     app.include_router(auth.router)
+    app.include_router(tokens.router)
     app.include_router(maps.router)
     app.include_router(media.router)
     app.include_router(captures.router)
+    app.include_router(analytics.router)
     app.include_router(public.router)
 
     @app.middleware("http")

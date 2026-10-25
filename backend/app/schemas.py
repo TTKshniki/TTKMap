@@ -39,6 +39,13 @@ class Session(StrictModel):
     expires_at: datetime
 
 
+class BearerToken(StrictModel):
+    token: str
+    token_type: Literal["bearer"]
+    expires_at: datetime
+    user: User
+
+
 class Point(StrictModel):
     x: Coordinate
     y: Coordinate
@@ -49,18 +56,23 @@ class Shape(StrictModel):
     kind: Literal["wall", "room", "corridor"]
     label: str = Field(max_length=160)
     points: list[Point] = Field(min_length=2, max_length=512)
+    floor_id: UUID | None = None
+    height_m: float | None = Field(default=None, gt=0, le=100, allow_inf_nan=False)
 
 
 class NavNode(StrictModel):
     id: UUID
     x: Coordinate
     y: Coordinate
+    floor_id: UUID | None = None
 
 
 class NavEdge(StrictModel):
     id: UUID
     a: UUID
     b: UUID
+    kind: Literal["walk", "door", "stairs", "elevator", "ramp"] = "walk"
+    cost_units: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def canonical_order(self) -> "NavEdge":
@@ -78,6 +90,7 @@ class Poi(StrictModel):
     x: Coordinate
     y: Coordinate
     nav_node_id: UUID | None
+    floor_id: UUID | None = None
 
     @model_validator(mode="after")
     def custom_category_has_label(self) -> "Poi":
@@ -94,6 +107,7 @@ class Panorama(StrictModel):
     y: Coordinate
     nav_node_id: UUID | None
     heading_offset_deg: Yaw
+    floor_id: UUID | None = None
 
 
 class Hotspot(StrictModel):
@@ -114,6 +128,24 @@ class Hotspot(StrictModel):
         return self
 
 
+class Building(StrictModel):
+    id: UUID
+    title: str = Field(min_length=1, max_length=160)
+    kind: Literal["building", "outdoor"]
+    outline_json: list[Point] | None = None
+    sort_order: int = 0
+
+
+class Floor(StrictModel):
+    id: UUID
+    building_id: UUID
+    level: int = Field(ge=-20, le=200)
+    title: str = Field(min_length=1, max_length=160)
+    elevation_m: float = Field(ge=-500, le=2000, allow_inf_nan=False)
+    height_m: float = Field(gt=0, le=100, allow_inf_nan=False)
+    background_asset_id: UUID | None = None
+
+
 class MapDocument(StrictModel):
     title: str = Field(min_length=1, max_length=160)
     description: str = Field(max_length=4000)
@@ -121,6 +153,8 @@ class MapDocument(StrictModel):
     scale_m_per_unit: float | None
     max_walk_gap_units: float = Field(gt=0, le=1000000, allow_inf_nan=False)
     background_asset_id: UUID | None
+    buildings: list[Building] | None = None
+    floors: list[Floor] | None = None
     shapes: list[Shape] = Field(max_length=1000)
     nodes: list[NavNode] = Field(max_length=2000)
     edges: list[NavEdge] = Field(max_length=4000)
@@ -139,8 +173,17 @@ class MapDocument(StrictModel):
     def unique_ids(self) -> "MapDocument":
         groups = (self.shapes, self.nodes, self.edges, self.pois, self.panoramas, self.hotspots)
         ids = [item.id for group in groups for item in group]
+        if self.buildings:
+            ids.extend(b.id for b in self.buildings)
+        if self.floors:
+            ids.extend(f.id for f in self.floors)
         if len(ids) != len(set(ids)):
             raise ValueError("IDs must be unique across a map document")
+        if self.floors:
+            building_ids = {b.id for b in (self.buildings or [])}
+            for floor in self.floors:
+                if floor.building_id not in building_ids:
+                    raise ValueError(f"floor {floor.id} references unknown building {floor.building_id}")
         return self
 
 
@@ -185,3 +228,4 @@ class CreateCaptureRequest(StrictModel):
     x: Coordinate
     y: Coordinate
     hfov_hint_deg: float = Field(ge=40, le=85, allow_inf_nan=False)
+
