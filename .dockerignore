@@ -9,6 +9,16 @@ node_modules
 frontend/node_modules
 frontend/dist
 data
+backups
+build
+dist
+android/.gradle
+android/.idea
+android/app/.gradle
+android/app/.idea
+android/build
+android/app/build
+frontend/public/photos
 .env
 __pycache__
 .pytest_cache

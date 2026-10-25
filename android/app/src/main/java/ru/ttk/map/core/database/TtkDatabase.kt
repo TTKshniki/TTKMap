@@ -20,7 +20,7 @@ import java.util.UUID
 
 /**
  * Offline-first SQLite entities and DAO powered by Android's native SQLiteOpenHelper.
- * Enforces WAL, foreign_keys = ON, and busy_timeout = 5000 per TTKMap AGENTS.md rules.
+ * Enforces WAL, foreign_keys = ON, and busy_timeout = 5000 for shared SQLite behavior.
  */
 data class CachedPublicMapEntity(
     val slug: String,
@@ -130,7 +130,7 @@ class TtkDatabase private constructor(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Explicit migrations only per AGENTS.md; never wipe existing user data unnecessarily.
+        // Explicit migrations only; never wipe existing user data unnecessarily.
         createTablesIfNotExist(db)
     }
 

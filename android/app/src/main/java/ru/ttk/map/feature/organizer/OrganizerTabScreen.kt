@@ -122,7 +122,7 @@ import ru.ttk.map.ui.theme.TtkTopAppBar
 enum class OrganizerHubTab(val label: String) {
     SPACES("Пространства"),
     ANALYTICS("Аналитика"),
-    AI_STUDIO("✨ AI Студия"),
+    AI_STUDIO("AI"),
     CAMPUS("Кампус")
 }
 
@@ -418,7 +418,9 @@ private fun OrganizerWorkspaceContent(
                                 Text(
                                     text = tab.label,
                                     fontWeight = if (activeTab == tab) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 13.sp
+                                    fontSize = 11.5.sp,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         )
@@ -588,11 +590,13 @@ private fun SpacesTabContent(
                     }
                     OutlinedButton(
                         onClick = onLogout,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(34.dp)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Выйти")
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Выйти", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -608,22 +612,9 @@ private fun SpacesTabContent(
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Сводка площадки", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = TtkGreenContainer
-                        ) {
-                            Text(
-                                text = "Live · ТТК Экспо",
-                                color = TtkDeepTeal,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
                     }
 
                     Row(

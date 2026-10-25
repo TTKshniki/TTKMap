@@ -133,6 +133,7 @@ fun Interactive2DPlanCanvas(
 
     var zoom by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
+    var isFullscreen by remember { mutableStateOf(false) }
     var backgroundBitmap by remember(backgroundUrl) { mutableStateOf<Bitmap?>(null) }
     val textMeasurer = rememberTextMeasurer()
 
@@ -205,17 +206,6 @@ fun Interactive2DPlanCanvas(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = "−",
-                    fontWeight = FontWeight.Black,
-                    fontSize = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .padding(horizontal = 8.dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures { zoom = (zoom / 1.25f).coerceIn(0.6f, 5f) }
-                        }
-                )
                 IconButton(
                     onClick = {
                         zoom = 1f
@@ -226,19 +216,19 @@ fun Interactive2DPlanCanvas(
                     Icon(Icons.Default.Refresh, contentDescription = "Сбросить масштаб", modifier = Modifier.size(16.dp))
                 }
                 IconButton(
-                    onClick = { zoom = (zoom * 1.25f).coerceIn(0.6f, 5f) },
+                    onClick = { isFullscreen = true },
                     modifier = Modifier.size(32.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "Приблизить", modifier = Modifier.size(16.dp))
+                    FullscreenExpandIcon(tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
                 }
             }
         }
 
-        // Interactive Stage
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFFF8FAFC))
+        // Interactive Stage Content Lambda
+        val stageContent: @Composable (Modifier) -> Unit = { stageModifier ->
+            Box(
+                modifier = stageModifier
+                    .background(Color(0xFFF8FAFC))
                 .pointerInput(safeWidth, safeHeight) {
                     detectTransformGestures { _, pan, gestureZoom, _ ->
                         val nextZoom = (zoom * gestureZoom).coerceIn(0.65f, 5.0f)
@@ -620,6 +610,28 @@ fun Interactive2DPlanCanvas(
                         center = cPos
                     )
                 }
+            }
+        }
+        }
+
+        stageContent(Modifier.fillMaxSize())
+        if (isFullscreen) {
+            FullscreenExpandedDialog(
+                visible = true,
+                title = "2D-План пространства",
+                onDismiss = { isFullscreen = false },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            zoom = 1f
+                            panOffset = Offset.Zero
+                        }
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Сброс масштаба", tint = Color.White)
+                    }
+                }
+            ) {
+                stageContent(Modifier.fillMaxSize())
             }
         }
     }

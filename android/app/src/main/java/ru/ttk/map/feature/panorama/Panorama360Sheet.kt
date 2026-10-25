@@ -332,10 +332,18 @@ fun Panorama360Dialog(
                 contentColor = Color.White
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Закрыть панораму",
+                            tint = Color.White
+                        )
+                    }
+
                     Column(modifier = Modifier.weight(1f)) {
                         TtkEyebrow(
                             text = if (editable) "РЕДАКТОР ХОТСПOТОВ 360°" else "ПАНОРАМА 360° · ТТК",
@@ -373,13 +381,6 @@ fun Panorama360Dialog(
                             Icon(
                                 imageVector = Icons.Default.Refresh,
                                 contentDescription = "Сбросить обзор",
-                                tint = Color.White
-                            )
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Закрыть панораму",
                                 tint = Color.White
                             )
                         }

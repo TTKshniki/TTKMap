@@ -20,10 +20,7 @@ FROM backend-base AS api
 COPY backend/ /app/backend/
 COPY CONTRACTS/ /app/CONTRACTS/
 COPY scripts/ /app/scripts/
-COPY TASKS/ /app/TASKS/
-COPY Audit.md Improvements.md specification.md README.md AGENTS.md /app/
-COPY docs/ /app/docs/
-COPY .github/ /app/.github/
+COPY README.md /app/README.md
 COPY --from=frontend-build /build/frontend/dist /app/frontend/dist
 EXPOSE 8000
 CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

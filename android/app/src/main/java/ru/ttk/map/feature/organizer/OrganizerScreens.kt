@@ -1065,7 +1065,7 @@ fun OrganizerWorkspaceScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            TtkEyebrow(text = "МОДУЛЬ 1 · ПАРАМЕТРЫ И ПУБЛИКАЦИЯ")
+                            TtkEyebrow(text = "ПАРАМЕТРЫ И ПУБЛИКАЦИЯ")
                             TtkStatusTag(isPublished = currentMap.document.isPublished)
                         }
 
@@ -1181,9 +1181,8 @@ fun OrganizerWorkspaceScreen(
                                 TtkEyebrow(text = "РЕДАКТОР 2D-ПЛАНА")
                                 Text("Геометрия, POI и граф навигации", style = MaterialTheme.typography.titleLarge)
                             }
-                            Row {
+                            if (undoStack.isNotEmpty()) {
                                 IconButton(
-                                    enabled = undoStack.isNotEmpty(),
                                     onClick = {
                                         val prev = undoStack.removeAt(undoStack.lastIndex)
                                         draft?.let { redoStack.add(it) }
@@ -1193,25 +1192,13 @@ fun OrganizerWorkspaceScreen(
                                 ) {
                                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Отменить")
                                 }
-                                IconButton(
-                                    enabled = redoStack.isNotEmpty(),
-                                    onClick = {
-                                        val next = redoStack.removeAt(redoStack.lastIndex)
-                                        draft?.let { undoStack.add(it) }
-                                        draft = next
-                                        dirty = true
-                                    }
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Повторить")
-                                }
                             }
                         }
 
-                        // 2D / 3D Mode & AI Assist Row
+                        // 2D / 3D Mode Selector Row
                         val availableFloors = remember(currentDoc) { MultiFloorHelper.getAvailableFloors(currentDoc) }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1222,13 +1209,6 @@ fun OrganizerWorkspaceScreen(
                                         label = { Text(mode.label, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                                     )
                                 }
-                            }
-
-                            OutlinedButton(
-                                onClick = { showAiPlanDialog = true },
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text("✨ AI Чертеж", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = TtkGreen)
                             }
                         }
 
