@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { PlanEditor } from "./PlanEditor";
+import { PlanEditor, computeMagneticSnap } from "./PlanEditor";
 import { emptyMapDocument } from "../../shared/document";
 import { apiClient } from "../../shared/api";
-import { connectNodes, removeSelection } from "./model";
+import { connectNodes, removeSelection, buildGraphFromDoors } from "./model";
 vi.mock("../../shared/api");
 const notify = vi.fn();
 function Editor() {
@@ -506,5 +506,129 @@ describe("plan editor", () => {
     const docAfterResize = JSON.parse(screen.getByTestId("document").textContent!);
     const updatedRoom = docAfterResize.shapes[0];
     expect(updatedRoom.points[1].x).toBe(220); // 100 + 120 = 220
+  });
+
+  it("attaches preset corridor directly to existing room with shared wall (zero gap)", () => {
+    function PresetTestEditor() {
+      const [doc, change] = useState(emptyMapDocument());
+      return (
+        <>
+          <PlanEditor
+            mapId="map"
+            widthUnits={700}
+            heightUnits={500}
+            document={doc}
+            isAuthenticated
+            onChangeDocument={change}
+            onNotify={notify}
+            onSaveDocument={vi.fn()}
+          />
+          <output data-testid="document">{JSON.stringify(doc)}</output>
+        </>
+      );
+    }
+
+    render(<PresetTestEditor />);
+
+    // 1. Add preset room
+    fireEvent.click(screen.getByRole("button", { name: /\+ Готовая комната/i }));
+    const docWithRoom = JSON.parse(screen.getByTestId("document").textContent!);
+    expect(docWithRoom.shapes).toHaveLength(1);
+    const room = docWithRoom.shapes[0];
+    const roomBottomY = room.points[2].y;
+
+    // 2. Add preset corridor - should attach flush to bottom wall of room (shared wall)
+    fireEvent.click(screen.getByRole("button", { name: /\+ Готовый коридор/i }));
+    const docWithBoth = JSON.parse(screen.getByTestId("document").textContent!);
+    expect(docWithBoth.shapes).toHaveLength(2);
+    const corridor = docWithBoth.shapes.find((s: any) => s.kind === "corridor");
+    expect(corridor).toBeDefined();
+
+    // Corridor's top wall y must equal room's bottom wall y (shared wall, zero gap!)
+    const corridorTopY = corridor.points[0].y;
+    expect(corridorTopY).toBe(roomBottomY);
+  });
+
+  it("magnetic snapping docks touching walls flush with zero gap", () => {
+    const otherShapes = [
+      {
+        id: "room-1",
+        kind: "room" as const,
+        label: "Зал 1",
+        points: [
+          { x: 100, y: 100 },
+          { x: 300, y: 100 },
+          { x: 300, y: 260 },
+          { x: 100, y: 260 },
+        ],
+      },
+    ];
+
+    // Moving corridor approaching from below at y = 274 (14 units away, within 24 unit threshold)
+    const movingCorridorBox = { minX: 100, maxX: 300, minY: 274, maxY: 334 };
+    const snapResult = computeMagneticSnap(movingCorridorBox, { x: 0, y: 0 }, otherShapes, 24);
+
+    // Adjusted Y delta should pull the corridor up by 14 units so minY exactly equals 260
+    expect(snapResult.delta.y).toBe(-14);
+    expect(movingCorridorBox.minY + snapResult.delta.y).toBe(260); // Exact shared wall!
+    expect(snapResult.guideLines.y).toBe(260);
+  });
+
+  it("buildGraphFromDoors connects room and corridor across shared wall into one building", () => {
+    const docWithSharedWall = {
+      ...emptyMapDocument(),
+      shapes: [
+        {
+          id: "room-a",
+          kind: "room" as const,
+          label: "Переговорная",
+          points: [
+            { x: 100, y: 100 },
+            { x: 300, y: 100 },
+            { x: 300, y: 260 },
+            { x: 100, y: 260 },
+          ],
+        },
+        {
+          id: "corridor-a",
+          kind: "corridor" as const,
+          label: "Коридор",
+          points: [
+            { x: 100, y: 260 },
+            { x: 300, y: 260 },
+            { x: 300, y: 320 },
+            { x: 100, y: 320 },
+          ],
+        },
+      ],
+      pois: [
+        {
+          id: "door-1",
+          title: "Проход / Дверь",
+          category: "custom",
+          category_label: "Дверь",
+          description: "Проход / Дверь [180,260 -> 220,260 | dir:0]",
+          x: 200,
+          y: 260,
+          nav_node_id: null,
+        },
+      ],
+    };
+
+    const graph = buildGraphFromDoors(docWithSharedWall);
+    // Should have nodes: room center (200, 180), doorway (200, 260), and corridor spine (200, 290)
+    expect(graph.nodes.length).toBeGreaterThanOrEqual(3);
+    expect(graph.edges.length).toBeGreaterThanOrEqual(2);
+
+    // Find door node at (200, 260)
+    const doorNode = graph.nodes.find((n) => n.x === 200 && n.y === 260);
+    expect(doorNode).toBeDefined();
+
+    // Verify door connects to room center node AND to corridor spine node
+    const connectedToDoor = graph.edges
+      .filter((e) => e.a === doorNode!.id || e.b === doorNode!.id)
+      .map((e) => (e.a === doorNode!.id ? e.b : e.a));
+
+    expect(connectedToDoor.length).toBe(2);
   });
 });

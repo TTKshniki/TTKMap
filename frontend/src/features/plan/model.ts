@@ -218,15 +218,17 @@ export function buildGraphFromDoors(doc: MapDocument): MapDocument {
 
     const testPoints = [
       mid,
-      { x: mid.x + nx * 15, y: mid.y + ny * 15 },
-      { x: mid.x - nx * 15, y: mid.y - ny * 15 },
+      { x: mid.x + nx * 18, y: mid.y + ny * 18 },
+      { x: mid.x - nx * 18, y: mid.y - ny * 18 },
+      { x: mid.x + nx * 8, y: mid.y + ny * 8 },
+      { x: mid.x - nx * 8, y: mid.y - ny * 8 },
     ];
 
     const connectedRooms: string[] = [];
     for (const room of rooms) {
       const touches =
         testPoints.some((tp) => pointInPolygon(tp, room.points)) ||
-        room.points.some((p, i) => distanceToSegment(mid, p, room.points[(i + 1) % room.points.length]) <= 25);
+        room.points.some((p, i) => distanceToSegment(mid, p, room.points[(i + 1) % room.points.length]) <= 30);
       if (touches) connectedRooms.push(room.id);
     }
 
@@ -234,7 +236,7 @@ export function buildGraphFromDoors(doc: MapDocument): MapDocument {
     for (const corr of corridors) {
       const touches =
         testPoints.some((tp) => pointInPolygon(tp, corr.points)) ||
-        corr.points.some((p, i) => distanceToSegment(mid, p, corr.points[(i + 1) % corr.points.length]) <= 25);
+        corr.points.some((p, i) => distanceToSegment(mid, p, corr.points[(i + 1) % corr.points.length]) <= 30);
       if (touches) connectedCorridors.push(corr.id);
     }
 

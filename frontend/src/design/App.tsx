@@ -19,6 +19,16 @@ import { CabinetView } from './components/CabinetView';
 import { Modals } from './components/Modals';
 import { navigate } from '../shared/router';
 import { validatePassword } from '../shared/passwordValidation';
+import { apiClient } from '../shared/api';
+import type { PublicMap } from '../../../CONTRACTS/types';
+
+export const SPACE_SLUGS: Record<SpaceKey, string> = {
+  plaza: 'ttkplazabusinesscenteraaaa',
+  expo: 'ttkexpocitypavilionmapaaaa',
+  hotel: 'ttkgrandcityhotelspaceaaaa',
+  hub: 'ttkplazabusinesscenteraaaa',
+  center: 'ttkexpocitypavilionmapaaaa',
+};
 
 export interface DesignAppProps {
   initialUser?: UserProfile | null;
@@ -92,6 +102,25 @@ export const App: React.FC<DesignAppProps> = ({
 
   const [activePanoramaPoi, setActivePanoramaPoi] = useState<PoiItem | null>(null);
   const [panoramaModalOpen, setPanoramaModalOpen] = useState<boolean>(false);
+  const [publicMapCache, setPublicMapCache] = useState<Record<string, PublicMap>>({});
+  const [activePanoramaId, setActivePanoramaId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const slug = SPACE_SLUGS[currentSpaceKey];
+    if (!slug || publicMapCache[slug] || typeof apiClient?.getPublicMap !== 'function') return;
+    let disposed = false;
+    void apiClient
+      .getPublicMap(slug)
+      .then((res) => {
+        if (!disposed && res?.status === 200) {
+          setPublicMapCache((prev) => ({ ...prev, [slug]: res.map }));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, [currentSpaceKey, publicMapCache]);
   const [panoZoom, setPanoZoom] = useState<number>(100);
   const [panoRotationX, setPanoRotationX] = useState<number>(0);
   const [panoRotationY, setPanoRotationY] = useState<number>(0);
@@ -406,9 +435,51 @@ export const App: React.FC<DesignAppProps> = ({
         ? currentSpace.pois[0]
         : null);
     setActivePanoramaPoi(fallbackPoi);
-    setPanoRotationX(0);
-    setPanoRotationY(0);
-    setPanoZoom(100);
+
+    const slug = SPACE_SLUGS[currentSpaceKey];
+    const map = slug ? publicMapCache[slug] : null;
+
+    if (map?.document.panoramas && map.document.panoramas.length > 0) {
+      const panos = map.document.panoramas;
+      let matchedPano = panos[0];
+      if (fallbackPoi) {
+        const poiNameRu = fallbackPoi.name.ru.toLowerCase();
+        const found = panos.find((p: { title: string; id: string }) => {
+          const pTitle = p.title.toLowerCase();
+          return (
+            pTitle.includes(poiNameRu) ||
+            poiNameRu.includes(pTitle.replace('панорама:', '').trim())
+          );
+        });
+        if (found) matchedPano = found;
+      }
+      setActivePanoramaId(matchedPano.id);
+    } else if (slug && typeof apiClient?.getPublicMap === 'function') {
+      void apiClient
+        .getPublicMap(slug)
+        .then((res) => {
+          if (res?.status === 200) {
+            setPublicMapCache((prev) => ({ ...prev, [slug]: res.map }));
+            if (res.map.document.panoramas.length > 0) {
+              let matchedPano = res.map.document.panoramas[0];
+              if (fallbackPoi) {
+                const poiNameRu = fallbackPoi.name.ru.toLowerCase();
+                const found = res.map.document.panoramas.find((p: { title: string; id: string }) => {
+                  const pTitle = p.title.toLowerCase();
+                  return (
+                    pTitle.includes(poiNameRu) ||
+                    poiNameRu.includes(pTitle.replace('панорама:', '').trim())
+                  );
+                });
+                if (found) matchedPano = found;
+              }
+              setActivePanoramaId(matchedPano.id);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
     setPanoramaModalOpen(true);
   };
 
@@ -581,12 +652,12 @@ export const App: React.FC<DesignAppProps> = ({
         setPanoramaModalOpen={setPanoramaModalOpen}
         activePanoramaPoi={activePanoramaPoi}
         currentSpace={currentSpace}
-        panoZoom={panoZoom}
-        panoRotationX={panoRotationX}
-        panoRotationY={panoRotationY}
-        startPanoDrag={startPanoDrag}
-        onPanoDrag={onPanoDrag}
-        stopPanoDrag={stopPanoDrag}
+        publicMap={publicMapCache[SPACE_SLUGS[currentSpaceKey]] ?? null}
+        activePanoramaId={activePanoramaId}
+        onSelectPanorama={(id) => setActivePanoramaId(id)}
+        onSelectPoi={(poi) => {
+          setSelectedPoi(poi);
+        }}
         notificationOpen={notificationOpen}
         notificationText={notificationText}
       />

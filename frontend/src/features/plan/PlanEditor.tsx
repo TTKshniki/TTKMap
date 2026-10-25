@@ -128,6 +128,100 @@ export function findDoorNormal(
   return { x: 1, y: 0 };
 }
 
+export interface MagneticSnapResult {
+  delta: Point;
+  guideLines: { x?: number; y?: number };
+}
+
+export function computeMagneticSnap(
+  movingBox: { minX: number; maxX: number; minY: number; maxY: number },
+  baseDelta: Point,
+  otherShapes: Shape[],
+  threshold = 24,
+): MagneticSnapResult {
+  let adjustedX = baseDelta.x;
+  let adjustedY = baseDelta.y;
+  const guideLines: { x?: number; y?: number } = {};
+
+  const curMinX = movingBox.minX + baseDelta.x;
+  const curMaxX = movingBox.maxX + baseDelta.x;
+  const curMinY = movingBox.minY + baseDelta.y;
+  const curMaxY = movingBox.maxY + baseDelta.y;
+
+  let bestDistX = threshold + 1;
+  let bestDistY = threshold + 1;
+
+  for (const shape of otherShapes) {
+    if (shape.kind !== "room" && shape.kind !== "corridor" && shape.kind !== "wall") continue;
+    const bb = boundingBox(shape.points);
+    if (!bb) continue;
+
+    const oMinX = bb.min.x;
+    const oMaxX = bb.max.x;
+    const oMinY = bb.min.y;
+    const oMaxY = bb.max.y;
+
+    // Y snapping: wall-to-wall flush contact (flush top-to-bottom or bottom-to-top)
+    const dTopToBottom = curMinY - oMaxY;
+    if (Math.abs(dTopToBottom) < bestDistY) {
+      bestDistY = Math.abs(dTopToBottom);
+      adjustedY = baseDelta.y - dTopToBottom;
+      guideLines.y = oMaxY;
+    }
+    const dBottomToTop = curMaxY - oMinY;
+    if (Math.abs(dBottomToTop) < bestDistY) {
+      bestDistY = Math.abs(dBottomToTop);
+      adjustedY = baseDelta.y - dBottomToTop;
+      guideLines.y = oMinY;
+    }
+    // Y edge alignment
+    const dTopToTop = curMinY - oMinY;
+    if (Math.abs(dTopToTop) < bestDistY) {
+      bestDistY = Math.abs(dTopToTop);
+      adjustedY = baseDelta.y - dTopToTop;
+      guideLines.y = oMinY;
+    }
+    const dBottomToBottom = curMaxY - oMaxY;
+    if (Math.abs(dBottomToBottom) < bestDistY) {
+      bestDistY = Math.abs(dBottomToBottom);
+      adjustedY = baseDelta.y - dBottomToBottom;
+      guideLines.y = oMaxY;
+    }
+
+    // X snapping: wall-to-wall flush contact (flush left-to-right or right-to-left)
+    const dLeftToRight = curMinX - oMaxX;
+    if (Math.abs(dLeftToRight) < bestDistX) {
+      bestDistX = Math.abs(dLeftToRight);
+      adjustedX = baseDelta.x - dLeftToRight;
+      guideLines.x = oMaxX;
+    }
+    const dRightToLeft = curMaxX - oMinX;
+    if (Math.abs(dRightToLeft) < bestDistX) {
+      bestDistX = Math.abs(dRightToLeft);
+      adjustedX = baseDelta.x - dRightToLeft;
+      guideLines.x = oMinX;
+    }
+    // X edge alignment
+    const dLeftToLeft = curMinX - oMinX;
+    if (Math.abs(dLeftToLeft) < bestDistX) {
+      bestDistX = Math.abs(dLeftToLeft);
+      adjustedX = baseDelta.x - dLeftToLeft;
+      guideLines.x = oMinX;
+    }
+    const dRightToRight = curMaxX - oMaxX;
+    if (Math.abs(dRightToRight) < bestDistX) {
+      bestDistX = Math.abs(dRightToRight);
+      adjustedX = baseDelta.x - dRightToRight;
+      guideLines.x = oMaxX;
+    }
+  }
+
+  return {
+    delta: { x: adjustedX, y: adjustedY },
+    guideLines,
+  };
+}
+
 export function getDoorGeometry(p1: Point, p2: Point, normal: Point) {
   const dx = p2.x - p1.x;
   const dy = p2.y - p1.y;
@@ -223,10 +317,7 @@ export function PlanEditor({
   const [showGraph, setShowGraph] = useState(true);
 
   const scaleM = doc.scale_m_per_unit && doc.scale_m_per_unit > 0 ? doc.scale_m_per_unit : null;
-  const gridStep =
-    doc.max_walk_gap_units && doc.max_walk_gap_units >= 5 && doc.max_walk_gap_units <= 200
-      ? Math.round(doc.max_walk_gap_units)
-      : 20;
+  const gridStep = 20;
   const snapStep = gridStep;
   const snap = (v: number) => (snapToGrid ? Math.round(v / gridStep) * gridStep : Math.round(v));
 
@@ -330,6 +421,7 @@ export function PlanEditor({
   }
   const clipboardRef = useRef<ClipboardItem | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [activeGuides, setActiveGuides] = useState<{ x?: number; y?: number } | null>(null);
 
   const drag = useRef<{
     point: Point;
@@ -889,6 +981,56 @@ export function PlanEditor({
       if (handle.includes("s")) newMaxY = Math.max(newMinY + gridStep, snappedY);
       if (handle.includes("n")) newMinY = Math.min(newMaxY - gridStep, snappedY);
 
+      // Magnetic snapping for resize boundaries to adjacent shape walls
+      const otherShapes = startDoc.shapes.filter((s) => s.id !== shapeId);
+      const guides: { x?: number; y?: number } = {};
+      const threshold = 24;
+
+      for (const other of otherShapes) {
+        if (other.kind !== "room" && other.kind !== "corridor" && other.kind !== "wall") continue;
+        const obb = boundingBox(other.points);
+        if (!obb) continue;
+
+        if (handle.includes("s")) {
+          if (Math.abs(newMaxY - obb.min.y) <= threshold) {
+            newMaxY = obb.min.y;
+            guides.y = obb.min.y;
+          } else if (Math.abs(newMaxY - obb.max.y) <= threshold) {
+            newMaxY = obb.max.y;
+            guides.y = obb.max.y;
+          }
+        }
+        if (handle.includes("n")) {
+          if (Math.abs(newMinY - obb.max.y) <= threshold) {
+            newMinY = obb.max.y;
+            guides.y = obb.max.y;
+          } else if (Math.abs(newMinY - obb.min.y) <= threshold) {
+            newMinY = obb.min.y;
+            guides.y = obb.min.y;
+          }
+        }
+        if (handle.includes("e")) {
+          if (Math.abs(newMaxX - obb.min.x) <= threshold) {
+            newMaxX = obb.min.x;
+            guides.x = obb.min.x;
+          } else if (Math.abs(newMaxX - obb.max.x) <= threshold) {
+            newMaxX = obb.max.x;
+            guides.x = obb.max.x;
+          }
+        }
+        if (handle.includes("w")) {
+          if (Math.abs(newMinX - obb.max.x) <= threshold) {
+            newMinX = obb.max.x;
+            guides.x = obb.max.x;
+          } else if (Math.abs(newMinX - obb.min.x) <= threshold) {
+            newMinX = obb.min.x;
+            guides.x = obb.min.x;
+          }
+        }
+      }
+
+      setActiveGuides(Object.keys(guides).length ? guides : null);
+
       const nextPoints: Point[] = [
         { x: newMinX, y: newMinY },
         { x: newMaxX, y: newMinY },
@@ -980,6 +1122,34 @@ export function PlanEditor({
         x: Math.round(delta.x / snapStep) * snapStep,
         y: Math.round(delta.y / snapStep) * snapStep,
       };
+
+      const movingShapeIds = new Set(
+        drag.current.items.filter((it) => it.kind === "shapes").map((it) => it.id),
+      );
+      const movingShapes = drag.current.document.shapes.filter((s) => movingShapeIds.has(s.id));
+      if (movingShapes.length > 0) {
+        let mMinX = Infinity, mMaxX = -Infinity, mMinY = Infinity, mMaxY = -Infinity;
+        for (const s of movingShapes) {
+          const bb = boundingBox(s.points);
+          if (bb) {
+            mMinX = Math.min(mMinX, bb.min.x);
+            mMaxX = Math.max(mMaxX, bb.max.x);
+            mMinY = Math.min(mMinY, bb.min.y);
+            mMaxY = Math.max(mMaxY, bb.max.y);
+          }
+        }
+        if (isFinite(mMinX)) {
+          const otherShapes = drag.current.document.shapes.filter((s) => !movingShapeIds.has(s.id));
+          const snapResult = computeMagneticSnap(
+            { minX: mMinX, maxX: mMaxX, minY: mMinY, maxY: mMaxY },
+            delta,
+            otherShapes,
+            24,
+          );
+          delta = snapResult.delta;
+          setActiveGuides(Object.keys(snapResult.guideLines).length ? snapResult.guideLines : null);
+        }
+      }
     }
     if (Math.hypot(next.x - drag.current.point.x, next.y - drag.current.point.y) > 2) {
       didDrag.current = true;
@@ -996,6 +1166,7 @@ export function PlanEditor({
   };
 
   const handleCanvasPointerUp = () => {
+    setActiveGuides(null);
     if (panDrag.current?.isPanning) {
       panDrag.current = null;
     }
@@ -1212,14 +1383,52 @@ export function PlanEditor({
   };
 
   const addPresetRoom = () => {
-    const rawW = Math.min(200, width * 0.4);
-    const rawH = Math.min(160, height * 0.4);
-    const w = Math.max(gridStep * 2, Math.round(rawW / gridStep) * gridStep);
-    const h = Math.max(gridStep * 2, Math.round(rawH / gridStep) * gridStep);
-    const cx = snap(width / 2);
-    const cy = snap(height / 2);
-    const x1 = Math.max(0, snap(cx - w / 2));
-    const y1 = Math.max(0, snap(cy - h / 2));
+    const rawW = 200;
+    const rawH = 160;
+    const w = rawW;
+    const h = rawH;
+    const corridors = doc.shapes.filter((s) => s.kind === "corridor");
+    const rooms = doc.shapes.filter((s) => s.kind === "room");
+    let x1: number, y1: number;
+
+    if (corridors.length > 0) {
+      // Attach room directly on top of the corridor (shared wall)
+      const primaryCorr = corridors[0];
+      const cbb = boundingBox(primaryCorr.points)!;
+      const roomsOnTop = rooms.filter((r) => {
+        const bb = boundingBox(r.points);
+        return bb && Math.abs(bb.max.y - cbb.min.y) <= 5;
+      });
+      if (roomsOnTop.length > 0) {
+        const maxRight = Math.max(...roomsOnTop.map((r) => boundingBox(r.points)!.max.x));
+        x1 = snap(maxRight);
+      } else {
+        x1 = snap(cbb.min.x);
+      }
+      y1 = snap(cbb.min.y - h);
+      if (y1 < 0) {
+        // If top overflows canvas, place below corridor
+        y1 = snap(cbb.max.y);
+      }
+      if (x1 + w > width) {
+        x1 = Math.max(0, snap(width - w));
+      }
+    } else if (rooms.length > 0) {
+      // Attach to the right of the last room (shared vertical wall)
+      const lastRoom = rooms[rooms.length - 1];
+      const rbb = boundingBox(lastRoom.points)!;
+      x1 = snap(rbb.max.x);
+      y1 = snap(rbb.min.y);
+      if (x1 + w > width) {
+        // Wrap down to next row
+        x1 = snap(rbb.min.x);
+        y1 = snap(rbb.max.y);
+      }
+    } else {
+      x1 = snap(width / 2 - w / 2);
+      y1 = snap(height / 2 - h / 2);
+    }
+
     const x2 = Math.min(width, x1 + w);
     const y2 = Math.min(height, y1 + h);
     const rectPoints: Point[] = [
@@ -1232,18 +1441,57 @@ export function PlanEditor({
     shape.label = `Помещение ${doc.shapes.filter((s) => s.kind === "room").length + 1}`;
     commit({ ...doc, shapes: [...doc.shapes, shape] });
     setSelectedItems([{ kind: "shapes", id: shape.id }]);
-    onNotify("Добавлена комната");
+    onNotify("Добавлена комната (привязана к стене)");
   };
 
   const addPresetCorridor = () => {
-    const rawW = Math.min(300, width * 0.6);
-    const rawH = Math.min(60, height * 0.2);
-    const w = Math.max(gridStep * 2, Math.round(rawW / gridStep) * gridStep);
-    const h = Math.max(gridStep, Math.round(rawH / gridStep) * gridStep);
-    const cx = snap(width / 2);
-    const cy = snap(height / 2);
-    const x1 = Math.max(0, snap(cx - w / 2));
-    const y1 = Math.max(0, snap(cy - h / 2));
+    const rawH = 60;
+    const h = rawH;
+    const rooms = doc.shapes.filter((s) => s.kind === "room");
+    let x1: number, y1: number, w: number;
+
+    if (rooms.length > 0) {
+      // Find bounding box across all existing rooms
+      let rMinX = Infinity, rMaxX = -Infinity, rMinY = Infinity, rMaxY = -Infinity;
+      for (const r of rooms) {
+        const bb = boundingBox(r.points);
+        if (bb) {
+          rMinX = Math.min(rMinX, bb.min.x);
+          rMaxX = Math.max(rMaxX, bb.max.x);
+          rMinY = Math.min(rMinY, bb.min.y);
+          rMaxY = Math.max(rMaxY, bb.max.y);
+        }
+      }
+      x1 = snap(rMinX);
+      w = snap(Math.max(gridStep * 4, rMaxX - rMinX));
+      // Attach flush below rooms (shared wall)
+      y1 = snap(rMaxY);
+      if (y1 + h > height) {
+        // If bottom would overflow canvas, attach flush above rooms
+        y1 = Math.max(0, snap(rMinY - h));
+      }
+    } else {
+      const corridors = doc.shapes.filter((s) => s.kind === "corridor");
+      if (corridors.length > 0) {
+        const lastCorr = corridors[corridors.length - 1];
+        const cbb = boundingBox(lastCorr.points);
+        if (cbb) {
+          x1 = snap(cbb.min.x);
+          w = snap(cbb.width);
+          y1 = snap(cbb.max.y);
+          if (y1 + h > height) y1 = Math.max(0, snap(cbb.min.y - h));
+        } else {
+          w = Math.max(gridStep * 4, snap(Math.min(300, width * 0.6)));
+          x1 = snap(width / 2 - w / 2);
+          y1 = snap(height / 2 - h / 2);
+        }
+      } else {
+        w = Math.max(gridStep * 4, snap(Math.min(300, width * 0.6)));
+        x1 = snap(width / 2 - w / 2);
+        y1 = snap(height / 2 - h / 2);
+      }
+    }
+
     const x2 = Math.min(width, x1 + w);
     const y2 = Math.min(height, y1 + h);
     const rectPoints: Point[] = [
@@ -1256,7 +1504,7 @@ export function PlanEditor({
     shape.label = `Коридор ${doc.shapes.filter((s) => s.kind === "corridor").length + 1}`;
     commit({ ...doc, shapes: [...doc.shapes, shape] });
     setSelectedItems([{ kind: "shapes", id: shape.id }]);
-    onNotify("Добавлен коридор");
+    onNotify("Добавлен коридор (привязан к помещениям)");
   };
 
   const clearAllPois = () => {
@@ -2329,6 +2577,34 @@ export function PlanEditor({
                 strokeDasharray="5 3"
                 rx={2}
               />
+            </g>
+          )}
+
+          {/* Active magnetic snap guide lines */}
+          {activeGuides && (
+            <g className="editor-snap-guides" pointerEvents="none">
+              {activeGuides.x !== undefined && (
+                <line
+                  x1={activeGuides.x}
+                  y1={0}
+                  x2={activeGuides.x}
+                  y2={height}
+                  stroke="#FF4900"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 2"
+                />
+              )}
+              {activeGuides.y !== undefined && (
+                <line
+                  x1={0}
+                  y1={activeGuides.y}
+                  x2={width}
+                  y2={activeGuides.y}
+                  stroke="#FF4900"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 2"
+                />
+              )}
             </g>
           )}
         </svg>
