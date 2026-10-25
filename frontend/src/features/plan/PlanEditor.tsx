@@ -10,15 +10,18 @@ import type {
 } from "../../../../CONTRACTS/types";
 import { apiClient } from "../../shared/api";
 import { pointFromSvg } from "../../shared/coordinates";
-import { pointInPolygon } from "../../shared/geometry";
+import { boundingBox, pointInPolygon, segmentsIntersect } from "../../shared/geometry";
 import { Inspector, nodeLabel } from "./Inspector";
 import {
   buildGraphFromDoors,
   connectNodes,
   makeShape,
+  moveMultiSelection,
   moveSelection,
+  removeMultiSelection,
   removeSelection,
   type Selection,
+  type SelectionItem,
 } from "./model";
 import { blockingWalls, parseDoorDescription } from "./routing";
 
@@ -177,7 +180,7 @@ export interface PlanEditorProps {
   captureSlot?: ReactNode;
 }
 
-type Tool = "pan" | "poi" | "main_door" | "door" | "window" | "node" | Shape["kind"];
+type Tool = "poi" | "main_door" | "door" | "window" | "node" | Shape["kind"];
 const tools: Record<Tool, string> = {
   poi: "Точка POI",
   main_door: "Главная дверь",
@@ -187,7 +190,6 @@ const tools: Record<Tool, string> = {
   wall: "Стена",
   room: "Комната",
   corridor: "Коридор",
-  pan: "Камера (двигать)",
 };
 
 export function PlanEditor({
@@ -203,8 +205,12 @@ export function PlanEditor({
   onAsset,
   captureSlot,
 }: PlanEditorProps) {
-  const [tool, setTool] = useState<Tool | null>("poi");
-  const [selection, setSelection] = useState<Selection>(null);
+  const [tool, setTool] = useState<Tool | null>(null);
+  const [selectedItems, setSelectedItems] = useState<SelectionItem[]>([]);
+  const selection: Selection = selectedItems.length > 0 ? selectedItems[0] : null;
+  const setSelection = (sel: Selection) => {
+    setSelectedItems(sel ? [sel] : []);
+  };
   const [points, setPoints] = useState<Point[]>([]);
   const [past, setPast] = useState<MapDocument[]>([]);
   const [future, setFuture] = useState<MapDocument[]>([]);
@@ -221,8 +227,8 @@ export function PlanEditor({
     doc.max_walk_gap_units && doc.max_walk_gap_units >= 5 && doc.max_walk_gap_units <= 200
       ? Math.round(doc.max_walk_gap_units)
       : 20;
-  const snapStep = Math.max(5, Math.min(25, Math.round(gridStep / 2)));
-  const snap = (v: number) => (snapToGrid ? Math.round(v / snapStep) * snapStep : Math.round(v));
+  const snapStep = gridStep;
+  const snap = (v: number) => (snapToGrid ? Math.round(v / gridStep) * gridStep : Math.round(v));
 
   const formatDist = (units: number) => {
     if (scaleM) {
@@ -327,7 +333,14 @@ export function PlanEditor({
 
   const drag = useRef<{
     point: Point;
-    selection: NonNullable<Selection>;
+    items: SelectionItem[];
+    document: MapDocument;
+  } | null>(null);
+  const resizeDrag = useRef<{
+    shapeId: string;
+    handle: string;
+    initialBox: { minX: number; maxX: number; minY: number; maxY: number };
+    startPt: Point;
     document: MapDocument;
   } | null>(null);
   const didDrag = useRef(false);
@@ -359,7 +372,7 @@ export function PlanEditor({
       if (e.key === "Escape") {
         setPoints([]);
         setSelection(null);
-        if (tool === "room" || tool === "corridor" || tool === "wall" || tool === "pan") {
+        if (tool === "room" || tool === "corridor" || tool === "wall") {
           setTool(null);
         }
         if (panDrag.current) panDrag.current = null;
@@ -532,23 +545,24 @@ export function PlanEditor({
         return;
       }
 
-      if ((e.key === "Delete" || e.key === "Backspace") && selection) {
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedItems.length > 0) {
         e.preventDefault();
-        commit(removeSelection(current.current, selection));
-        setSelection(null);
-        onNotify("Объект удалён");
+        const count = selectedItems.length;
+        commit(removeMultiSelection(current.current, selectedItems));
+        setSelectedItems([]);
+        onNotify(count > 1 ? `Удалено объектов: ${count}` : "Объект удалён");
       } else if (
         (e.key === "ArrowLeft" ||
           e.key === "ArrowRight" ||
           e.key === "ArrowUp" ||
           e.key === "ArrowDown") &&
-        selection
+        selectedItems.length > 0
       ) {
         e.preventDefault();
-        const step = e.shiftKey ? 20 : 5;
+        const step = e.shiftKey ? gridStep * 2 : gridStep;
         const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
         const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
-        commit(moveSelection(current.current, selection, { x: dx, y: dy }, width, height));
+        commit(moveMultiSelection(current.current, selectedItems, { x: dx, y: dy }, width, height));
       } else if (isCtrl && isZ) {
         e.preventDefault();
         if (e.shiftKey) {
@@ -600,8 +614,7 @@ export function PlanEditor({
       didDrag.current ||
       marqueeDrag.current?.isSelecting ||
       panDrag.current?.isPanning ||
-      isSpacePressed ||
-      tool === "pan"
+      isSpacePressed
     ) {
       didDrag.current = false;
       return;
@@ -674,7 +687,16 @@ export function PlanEditor({
         )
           return;
         event.stopPropagation();
-        setSelection({ kind, id });
+        if (event.shiftKey) {
+          const exists = selectedItems.some((s) => s.kind === kind && s.id === id);
+          if (exists) {
+            setSelectedItems(selectedItems.filter((s) => !(s.kind === kind && s.id === id)));
+          } else {
+            setSelectedItems([...selectedItems, { kind, id }]);
+          }
+        } else {
+          setSelectedItems([{ kind, id }]);
+        }
       },
       onPointerDown: (event: React.PointerEvent<SVGGElement>) => {
         if (!svg.current) return;
@@ -683,7 +705,6 @@ export function PlanEditor({
           tool === "main_door" ||
           tool === "door" ||
           tool === "window" ||
-          tool === "pan" ||
           isSpacePressed ||
           event.button === 1 ||
           event.button === 2
@@ -702,12 +723,24 @@ export function PlanEditor({
         try {
           event.currentTarget.setPointerCapture?.(event.pointerId);
         } catch (_) {}
-        setSelection({ kind, id });
+
+        const isAlreadySelected = selectedItems.some((s) => s.kind === kind && s.id === id);
+        let currentItems: SelectionItem[];
+        if (isAlreadySelected) {
+          currentItems = selectedItems;
+        } else if (event.shiftKey) {
+          currentItems = [...selectedItems, { kind, id }];
+          setSelectedItems(currentItems);
+        } else {
+          currentItems = [{ kind, id }];
+          setSelectedItems(currentItems);
+        }
+
         setDraggingId(id);
         didDrag.current = false;
         drag.current = {
           point: pointFromSvg(svg.current, event.clientX, event.clientY),
-          selection: { kind, id },
+          items: currentItems,
           document: doc,
         };
       },
@@ -727,9 +760,9 @@ export function PlanEditor({
         if (Math.hypot(next.x - drag.current.point.x, next.y - drag.current.point.y) > 2) {
           didDrag.current = true;
           emit(
-            moveSelection(
+            moveMultiSelection(
               drag.current.document,
-              drag.current.selection,
+              drag.current.items,
               delta,
               width,
               height,
@@ -759,11 +792,34 @@ export function PlanEditor({
     };
   };
 
+  const handleResizePointerDown = (
+    handleId: string,
+    shape: Shape,
+    event: React.PointerEvent,
+  ) => {
+    event.stopPropagation();
+    event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    } catch (_) {}
+    const raw = pointFromSvg(svg.current!, event.clientX, event.clientY);
+    const bb = boundingBox(shape.points);
+    if (!bb) return;
+    resizeDrag.current = {
+      shapeId: shape.id,
+      handle: handleId,
+      initialBox: { minX: bb.min.x, maxX: bb.max.x, minY: bb.min.y, maxY: bb.max.y },
+      startPt: raw,
+      document: doc,
+    };
+    didDrag.current = false;
+  };
+
   const handleCanvasPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
     if (!svg.current || !isAuthenticated) return;
 
-    // Pan camera (Middle mouse button, Right mouse button, Pan tool, or Space key held)
-    if (tool === "pan" || isSpacePressed || event.button === 1 || event.button === 2) {
+    // Pan camera (Middle mouse button, Right mouse button, or Space key held)
+    if (isSpacePressed || event.button === 1 || event.button === 2) {
       event.preventDefault();
       panDrag.current = {
         startX: event.clientX,
@@ -810,6 +866,41 @@ export function PlanEditor({
       const dy = event.clientY - panDrag.current.startY;
       containerRef.current.scrollLeft = panDrag.current.scrollLeft - dx;
       containerRef.current.scrollTop = panDrag.current.scrollTop - dy;
+      return;
+    }
+
+    // Shape Resizing (Room / Corridor length & width)
+    if (resizeDrag.current && svg.current) {
+      const raw = pointFromSvg(svg.current, event.clientX, event.clientY);
+      const { shapeId, handle, initialBox, document: startDoc } = resizeDrag.current;
+      const targetShape = startDoc.shapes.find((s) => s.id === shapeId);
+      if (!targetShape) return;
+
+      let newMinX = initialBox.minX;
+      let newMaxX = initialBox.maxX;
+      let newMinY = initialBox.minY;
+      let newMaxY = initialBox.maxY;
+
+      const snappedX = Math.max(0, Math.min(width, snap(raw.x)));
+      const snappedY = Math.max(0, Math.min(height, snap(raw.y)));
+
+      if (handle.includes("e")) newMaxX = Math.max(newMinX + gridStep, snappedX);
+      if (handle.includes("w")) newMinX = Math.min(newMaxX - gridStep, snappedX);
+      if (handle.includes("s")) newMaxY = Math.max(newMinY + gridStep, snappedY);
+      if (handle.includes("n")) newMinY = Math.min(newMaxY - gridStep, snappedY);
+
+      const nextPoints: Point[] = [
+        { x: newMinX, y: newMinY },
+        { x: newMaxX, y: newMinY },
+        { x: newMaxX, y: newMaxY },
+        { x: newMinX, y: newMaxY },
+      ];
+
+      didDrag.current = true;
+      emit({
+        ...startDoc,
+        shapes: startDoc.shapes.map((s) => (s.id === shapeId ? { ...s, points: nextPoints } : s)),
+      });
       return;
     }
 
@@ -893,9 +984,9 @@ export function PlanEditor({
     if (Math.hypot(next.x - drag.current.point.x, next.y - drag.current.point.y) > 2) {
       didDrag.current = true;
       emit(
-        moveSelection(
+        moveMultiSelection(
           drag.current.document,
-          drag.current.selection,
+          drag.current.items,
           delta,
           width,
           height,
@@ -907,6 +998,14 @@ export function PlanEditor({
   const handleCanvasPointerUp = () => {
     if (panDrag.current?.isPanning) {
       panDrag.current = null;
+    }
+
+    if (resizeDrag.current) {
+      if (didDrag.current) {
+        setPast((history) => [...history.slice(-49), resizeDrag.current!.document]);
+        setFuture([]);
+      }
+      resizeDrag.current = null;
     }
 
     if (marqueeDrag.current?.isSelecting) {
@@ -922,64 +1021,89 @@ export function PlanEditor({
 
       if (diag > 6) {
         didDrag.current = true;
-        // Priority 1: Check POIs (doors, passages, entrance, poi)
-        const hitPoi = doc.pois.find((p) => {
-          if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) return true;
+        const selected: SelectionItem[] = [];
+
+        // Check POIs (doors, passages, entrance, poi)
+        for (const p of doc.pois) {
           const parsed = parseDoorDescription(p.description);
           if (parsed?.geom) {
             const { x1, y1, x2, y2 } = parsed.geom;
             if (
               (x1 >= minX && x1 <= maxX && y1 >= minY && y1 <= maxY) ||
-              (x2 >= minX && x2 <= maxX && y2 >= minY && y2 <= maxY)
+              (x2 >= minX && x2 <= maxX && y2 >= minY && y2 <= maxY) ||
+              segmentsIntersect({ x: minX, y: minY }, { x: maxX, y: minY }, { x: x1, y: y1 }, { x: x2, y: y2 }) ||
+              segmentsIntersect({ x: minX, y: maxY }, { x: maxX, y: maxY }, { x: x1, y: y1 }, { x: x2, y: y2 })
             ) {
-              return true;
+              selected.push({ kind: "pois", id: p.id });
+              continue;
             }
           }
-          return false;
-        });
-        if (hitPoi) {
-          setSelection({ kind: "pois", id: hitPoi.id });
-          return;
+          if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) {
+            selected.push({ kind: "pois", id: p.id });
+          }
         }
 
-        // Priority 2: Check shapes (room, corridor, wall)
-        const hitShape = doc.shapes.find((s) => {
-          if (
-            s.points.some(
-              (pt) => pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY,
-            )
-          ) {
-            return true;
+        // Check shapes (room, corridor, wall)
+        const boxCorners = [
+          { x: minX, y: minY },
+          { x: maxX, y: minY },
+          { x: maxX, y: maxY },
+          { x: minX, y: maxY },
+        ];
+        for (const s of doc.shapes) {
+          const anyPtInside = s.points.some(
+            (pt) => pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY,
+          );
+          if (anyPtInside) {
+            selected.push({ kind: "shapes", id: s.id });
+            continue;
           }
           const cx = s.points.reduce((acc, p) => acc + p.x, 0) / s.points.length;
           const cy = s.points.reduce((acc, p) => acc + p.y, 0) / s.points.length;
-          return cx >= minX && cx <= maxX && cy >= minY && cy <= maxY;
-        });
-        if (hitShape) {
-          setSelection({ kind: "shapes", id: hitShape.id });
-          return;
-        }
-
-        // Priority 3: Check panoramas
-        const hitPano = doc.panoramas.find(
-          (p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY,
-        );
-        if (hitPano) {
-          setSelection({ kind: "panoramas", id: hitPano.id });
-          return;
-        }
-
-        if (tool === "node") {
-          const hitNode = doc.nodes.find(
-            (n) => n.x >= minX && n.x <= maxX && n.y >= minY && n.y <= maxY,
-          );
-          if (hitNode) {
-            setSelection({ kind: "nodes", id: hitNode.id });
-            return;
+          if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY) {
+            selected.push({ kind: "shapes", id: s.id });
+            continue;
+          }
+          let intersects = false;
+          const isClosed = s.kind === "room" || s.kind === "corridor";
+          const count = isClosed ? s.points.length : s.points.length - 1;
+          for (let i = 0; i < count && !intersects; i++) {
+            const sp1 = s.points[i];
+            const sp2 = s.points[(i + 1) % s.points.length];
+            for (let b = 0; b < 4 && !intersects; b++) {
+              if (segmentsIntersect(sp1, sp2, boxCorners[b], boxCorners[(b + 1) % 4])) {
+                intersects = true;
+              }
+            }
+          }
+          if (intersects) {
+            selected.push({ kind: "shapes", id: s.id });
           }
         }
 
-        setSelection(null);
+        // Check panoramas
+        for (const p of doc.panoramas) {
+          if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) {
+            selected.push({ kind: "panoramas", id: p.id });
+          }
+        }
+
+        // Check nodes
+        for (const n of doc.nodes) {
+          if (n.x >= minX && n.x <= maxX && n.y >= minY && n.y <= maxY) {
+            const belongsToPoi = selected.some(
+              (item) => item.kind === "pois" && doc.pois.find((p) => p.id === item.id)?.nav_node_id === n.id,
+            );
+            if (!belongsToPoi) {
+              selected.push({ kind: "nodes", id: n.id });
+            }
+          }
+        }
+
+        setSelectedItems(selected);
+        return;
+      } else {
+        setSelectedItems([]);
       }
     }
 
@@ -1088,38 +1212,50 @@ export function PlanEditor({
   };
 
   const addPresetRoom = () => {
-    const cx = Math.round(width / 2);
-    const cy = Math.round(height / 2);
-    const w = Math.min(200, Math.round(width * 0.4));
-    const h = Math.min(150, Math.round(height * 0.4));
+    const rawW = Math.min(200, width * 0.4);
+    const rawH = Math.min(160, height * 0.4);
+    const w = Math.max(gridStep * 2, Math.round(rawW / gridStep) * gridStep);
+    const h = Math.max(gridStep * 2, Math.round(rawH / gridStep) * gridStep);
+    const cx = snap(width / 2);
+    const cy = snap(height / 2);
+    const x1 = Math.max(0, snap(cx - w / 2));
+    const y1 = Math.max(0, snap(cy - h / 2));
+    const x2 = Math.min(width, x1 + w);
+    const y2 = Math.min(height, y1 + h);
     const rectPoints: Point[] = [
-      { x: Math.max(10, cx - w / 2), y: Math.max(10, cy - h / 2) },
-      { x: Math.min(width - 10, cx + w / 2), y: Math.max(10, cy - h / 2) },
-      { x: Math.min(width - 10, cx + w / 2), y: Math.min(height - 10, cy + h / 2) },
-      { x: Math.max(10, cx - w / 2), y: Math.min(height - 10, cy + h / 2) },
+      { x: x1, y: y1 },
+      { x: x2, y: y1 },
+      { x: x2, y: y2 },
+      { x: x1, y: y2 },
     ];
     const shape = makeShape("room", rectPoints);
     shape.label = `Помещение ${doc.shapes.filter((s) => s.kind === "room").length + 1}`;
     commit({ ...doc, shapes: [...doc.shapes, shape] });
-    setSelection({ kind: "shapes", id: shape.id });
+    setSelectedItems([{ kind: "shapes", id: shape.id }]);
     onNotify("Добавлена комната");
   };
 
   const addPresetCorridor = () => {
-    const cx = Math.round(width / 2);
-    const cy = Math.round(height / 2);
-    const w = Math.min(300, Math.round(width * 0.6));
-    const h = Math.min(60, Math.round(height * 0.2));
+    const rawW = Math.min(300, width * 0.6);
+    const rawH = Math.min(60, height * 0.2);
+    const w = Math.max(gridStep * 2, Math.round(rawW / gridStep) * gridStep);
+    const h = Math.max(gridStep, Math.round(rawH / gridStep) * gridStep);
+    const cx = snap(width / 2);
+    const cy = snap(height / 2);
+    const x1 = Math.max(0, snap(cx - w / 2));
+    const y1 = Math.max(0, snap(cy - h / 2));
+    const x2 = Math.min(width, x1 + w);
+    const y2 = Math.min(height, y1 + h);
     const rectPoints: Point[] = [
-      { x: Math.max(10, cx - w / 2), y: Math.max(10, cy - h / 2) },
-      { x: Math.min(width - 10, cx + w / 2), y: Math.max(10, cy - h / 2) },
-      { x: Math.min(width - 10, cx + w / 2), y: Math.min(height - 10, cy + h / 2) },
-      { x: Math.max(10, cx - w / 2), y: Math.min(height - 10, cy + h / 2) },
+      { x: x1, y: y1 },
+      { x: x2, y: y1 },
+      { x: x2, y: y2 },
+      { x: x1, y: y2 },
     ];
     const shape = makeShape("corridor", rectPoints);
     shape.label = `Коридор ${doc.shapes.filter((s) => s.kind === "corridor").length + 1}`;
     commit({ ...doc, shapes: [...doc.shapes, shape] });
-    setSelection({ kind: "shapes", id: shape.id });
+    setSelectedItems([{ kind: "shapes", id: shape.id }]);
     onNotify("Добавлен коридор");
   };
 
@@ -1176,10 +1312,6 @@ export function PlanEditor({
     node: {
       title: "Узел прохода",
       hint: "Кликните на плане для добавления точки графа маршрутизации.",
-    },
-    pan: {
-      title: "Камера (двигать план)",
-      hint: "Зажмите ЛКМ и перемещайте план. Также можно зажать клавишу Пробел или колесо мыши при любом активном инструменте.",
     },
   };
 
@@ -1482,7 +1614,7 @@ export function PlanEditor({
             cursor:
               draggingId
                 ? "grabbing"
-                : tool === "pan" || isSpacePressed
+                : isSpacePressed
                   ? panDrag.current?.isPanning
                     ? "grabbing"
                     : "grab"
@@ -1550,7 +1682,7 @@ export function PlanEditor({
           {/* Фигуры / Комнаты / Коридоры / Стены */}
           {doc.shapes.map((shape, shapeIndex) => {
             const isShapeSelected =
-              selection?.kind === "shapes" && selection.id === shape.id;
+              selectedItems.some((s) => s.kind === "shapes" && s.id === shape.id);
             // Architectural sheet: rooms read as tinted zones on paper, not as a colour wheel.
             const roomColors = [
               { fill: "rgba(29, 104, 96, 0.10)", stroke: "#1d6860", text: "#155049" },
@@ -1645,12 +1777,63 @@ export function PlanEditor({
             );
           })}
 
+          {/* Маркеры изменения размера (длина и ширина) для выделенной комнаты или коридора */}
+          {(() => {
+            if (selectedItems.length !== 1 || selectedItems[0].kind !== "shapes") return null;
+            const targetShape = doc.shapes.find((s) => s.id === selectedItems[0].id);
+            if (!targetShape || (targetShape.kind !== "room" && targetShape.kind !== "corridor")) return null;
+            const bb = boundingBox(targetShape.points);
+            if (!bb) return null;
+            const minX = bb.min.x;
+            const maxX = bb.max.x;
+            const minY = bb.min.y;
+            const maxY = bb.max.y;
+            const midX = Math.round((minX + maxX) / 2);
+            const midY = Math.round((minY + maxY) / 2);
+
+            const handles = [
+              { id: "nw", x: minX, y: minY, cursor: "nwse-resize", title: "Изменить размер (угол)" },
+              { id: "n",  x: midX, y: minY, cursor: "ns-resize",   title: "Изменить длину (сверху)" },
+              { id: "ne", x: maxX, y: minY, cursor: "nesw-resize", title: "Изменить размер (угол)" },
+              { id: "e",  x: maxX, y: midY, cursor: "ew-resize",   title: "Изменить ширину (справа)" },
+              { id: "se", x: maxX, y: maxY, cursor: "nwse-resize", title: "Изменить размер (угол)" },
+              { id: "s",  x: midX, y: maxY, cursor: "ns-resize",   title: "Изменить длину (снизу)" },
+              { id: "sw", x: minX, y: maxY, cursor: "nesw-resize", title: "Изменить размер (угол)" },
+              { id: "w",  x: minX, y: midY, cursor: "ew-resize",   title: "Изменить ширину (слева)" },
+            ];
+
+            return (
+              <g className="resize-handles-layer">
+                {handles.map((h) => (
+                  <g
+                    key={h.id}
+                    transform={`translate(${h.x}, ${h.y})`}
+                    style={{ cursor: h.cursor }}
+                    onPointerDown={(e) => handleResizePointerDown(h.id, targetShape, e)}
+                  >
+                    <circle r={12} fill="transparent" />
+                    <rect
+                      x={-5}
+                      y={-5}
+                      width={10}
+                      height={10}
+                      rx={2}
+                      className="fill-white stroke-[#FF4900] shadow-sm hover:fill-orange-50 transition-colors"
+                      strokeWidth={2}
+                    />
+                    <title>{h.title}</title>
+                  </g>
+                ))}
+              </g>
+            );
+          })()}
+
           {/* Ребра графа проходов */}
           {showGraph && doc.edges.map((edge) => {
             const a = doc.nodes.find((n) => n.id === edge.a),
               b = doc.nodes.find((n) => n.id === edge.b);
             const isEdgeSelected =
-              selection?.kind === "edges" && selection.id === edge.id;
+              selectedItems.some((s) => s.kind === "edges" && s.id === edge.id);
             // A legacy edge may still cut through a wall; flag it instead of hiding the problem.
             const blocked = a && b ? blockingWalls(doc, a, b).length > 0 : false;
             return a && b ? (
@@ -1687,7 +1870,7 @@ export function PlanEditor({
           {(showGraph || tool === "node") &&
             doc.nodes.map((node) => {
               const isNodeSelected =
-                selection?.kind === "nodes" && selection.id === node.id;
+                selectedItems.some((s) => s.kind === "nodes" && s.id === node.id);
               return (
                 <g
                   key={node.id}
@@ -1721,7 +1904,7 @@ export function PlanEditor({
           {/* Точки интереса (POIs), Двери, Проходы и Окна */}
           {doc.pois.map((poi) => {
             const isPoiSelected =
-              selection?.kind === "pois" && selection.id === poi.id;
+              selectedItems.some((s) => s.kind === "pois" && s.id === poi.id);
             const isEntrance = poi.category === "entrance";
             const isDoor = poi.category_label === "Дверь" || poi.title.includes("Дверь") || poi.title.includes("Проход");
             const isWindow = poi.category_label === "Окно" || poi.title.includes("Окно");
@@ -2088,7 +2271,7 @@ export function PlanEditor({
           {/* Панорамы */}
           {doc.panoramas.map((p) => {
             const isPanoSelected =
-              selection?.kind === "panoramas" && selection.id === p.id;
+              selectedItems.some((s) => s.kind === "panoramas" && s.id === p.id);
             return (
               <g
                 key={p.id}
@@ -2166,18 +2349,29 @@ export function PlanEditor({
               Выбранный объект
               <select
                 aria-label="Выбранный объект"
-                value={selection ? `${selection.kind}:${selection.id}` : ""}
+                value={
+                  selectedItems.length === 1
+                    ? `${selectedItems[0].kind}:${selectedItems[0].id}`
+                    : ""
+                }
                 onChange={(e) => {
-                  const [kind, id] = e.target.value.split(":");
-                  setSelection(
-                    id
-                      ? { kind: kind as NonNullable<Selection>["kind"], id }
-                      : null,
-                  );
+                  if (!e.target.value) {
+                    setSelectedItems([]);
+                    return;
+                  }
+                  const [kind, id] = e.target.value.split(":") as [
+                    SelectionItem["kind"],
+                    string,
+                  ];
+                  setSelectedItems([{ kind, id }]);
                 }}
                 className="w-full mt-1.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#E31B23]/40 focus:border-[#E31B23]"
               >
-                <option value="">Выберите объект</option>
+                <option value="">
+                  {selectedItems.length > 1
+                    ? `Выбрано объектов (${selectedItems.length})`
+                    : "Выберите объект"}
+                </option>
                 {(
                   ["shapes", "pois", "nodes", "edges", "panoramas"] as const
                 ).flatMap((kind) =>
@@ -2195,14 +2389,20 @@ export function PlanEditor({
             </label>
             <button
               type="button"
-              disabled={!selection}
+              disabled={selectedItems.length === 0}
               onClick={() => {
-                if (selection) commit(removeSelection(doc, selection));
-                setSelection(null);
+                if (selectedItems.length > 0) {
+                  const count = selectedItems.length;
+                  commit(removeMultiSelection(doc, selectedItems));
+                  setSelectedItems([]);
+                  onNotify(count > 1 ? `Удалено объектов: ${count}` : "Объект удалён");
+                }
               }}
-              className="w-full px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-900/60 rounded-xl transition disabled:opacity-40"
+              className="w-full px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-900/60 rounded-xl transition disabled:opacity-40 cursor-pointer"
             >
-              Удалить объект
+              {selectedItems.length > 1
+                ? `Удалить объекты (${selectedItems.length})`
+                : "Удалить объект"}
             </button>
           </div>
 
@@ -2275,7 +2475,38 @@ export function PlanEditor({
           </div>
         </section>
 
-        {selection ? (
+        {selectedItems.length > 1 ? (
+          <section className="inspector bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                Выбрано объектов
+              </h3>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-orange-100 dark:bg-orange-950/60 text-[#FF4900]">
+                {selectedItems.length} шт.
+              </span>
+            </div>
+            <div className="text-xs text-slate-600 dark:text-slate-400 space-y-2">
+              <p>
+                Выделено несколько элементов плана ({selectedItems.length} шт.).
+              </p>
+              <p>
+                Вы можете перемещать их вместе стрелками на клавиатуре или перетаскиванием мыши, а также удалить одновременно.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const count = selectedItems.length;
+                commit(removeMultiSelection(doc, selectedItems));
+                setSelectedItems([]);
+                onNotify(`Удалено объектов: ${count}`);
+              }}
+              className="w-full px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-900/60 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              Удалить выбранные объекты ({selectedItems.length})
+            </button>
+          </section>
+        ) : selection ? (
           <Inspector
             doc={doc}
             selection={selection}

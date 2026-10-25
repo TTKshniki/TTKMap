@@ -1,5 +1,5 @@
 import type { MapDocument, Point, Shape } from "../../../../CONTRACTS/types";
-import { segmentsIntersect, distanceToSegment } from "../../shared/geometry";
+import { segmentsIntersect, distanceToSegment, pointInPolygon } from "../../shared/geometry";
 
 /** Half-width of a doorway in plan units; a route may cross a wall only inside this band. */
 export const DOOR_CLEARANCE_UNITS = 14;
@@ -49,9 +49,33 @@ export function doorOpenings(doc: MapDocument): Opening[] {
 export function wallSegments(doc: MapDocument): Array<{ a: Point; b: Point; shape: Shape }> {
   const segments: Array<{ a: Point; b: Point; shape: Shape }> = [];
   for (const shape of doc.shapes) {
-    if (shape.kind !== "wall") continue;
-    for (let i = 0; i < shape.points.length - 1; i++) {
-      segments.push({ a: shape.points[i], b: shape.points[i + 1], shape });
+    if (shape.kind === "wall") {
+      for (let i = 0; i < shape.points.length - 1; i++) {
+        segments.push({ a: shape.points[i], b: shape.points[i + 1], shape });
+      }
+    } else if (shape.kind === "room" || shape.kind === "corridor") {
+      const pts = shape.points;
+      if (pts.length >= 3) {
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i];
+          const b = pts[(i + 1) % pts.length];
+          // If this corridor edge touches another corridor edge (an open corridor junction), do not treat as wall
+          if (shape.kind === "corridor") {
+            const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+            const isSharedCorridorBoundary = doc.shapes.some((other) => {
+              if (other.id === shape.id || other.kind !== "corridor" || other.points.length < 3) return false;
+              for (let j = 0; j < other.points.length; j++) {
+                const oa = other.points[j];
+                const ob = other.points[(j + 1) % other.points.length];
+                if (distanceToSegment(mid, oa, ob) <= 2) return true;
+              }
+              return pointInPolygon(mid, other.points);
+            });
+            if (isSharedCorridorBoundary) continue;
+          }
+          segments.push({ a, b, shape });
+        }
+      }
     }
   }
   return segments;

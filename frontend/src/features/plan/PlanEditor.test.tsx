@@ -39,7 +39,8 @@ describe("plan editor", () => {
   it("creates POIs without inventing edges and edits their attributes", () => {
     render(<Editor />);
     const svg = canvas();
-    fireEvent.click(svg, { clientX: 100, clientY: 150 });
+    fireEvent.click(screen.getByRole("button", { name: "Точка POI" }));
+    fireEvent.click(svg, { clientX: 100, clientY: 160 });
     fireEvent.change(screen.getByLabelText("Название объекта"), {
       target: { value: "Вход" },
     });
@@ -52,7 +53,7 @@ describe("plan editor", () => {
       title: "Вход",
       category: "entrance",
       x: 100,
-      y: 150,
+      y: 160,
     });
     expect(doc.nodes).toHaveLength(2);
     expect(doc.edges).toHaveLength(0);
@@ -343,12 +344,167 @@ describe("plan editor", () => {
     // Start drag on POI
     fireEvent(poiElement, createPointerEvent("pointerdown", 100, 100, 0));
     // Move pointer across canvas
-    fireEvent(canvasEl, createPointerEvent("pointermove", 140, 150));
+    fireEvent(canvasEl, createPointerEvent("pointermove", 140, 160));
     // Release pointer
-    fireEvent(canvasEl, createPointerEvent("pointerup", 140, 150));
+    fireEvent(canvasEl, createPointerEvent("pointerup", 140, 160));
 
     const doc = JSON.parse(screen.getByTestId("document").textContent!);
     expect(doc.pois[0].x).toBe(140);
-    expect(doc.pois[0].y).toBe(150);
+    expect(doc.pois[0].y).toBe(160);
+  });
+
+  it("defaults to no active tool and does not invent points when clicking canvas", () => {
+    render(<Editor />);
+    const svg = canvas();
+    // Clicking canvas without selecting any tool
+    fireEvent.click(svg, { clientX: 200, clientY: 200 });
+    const doc = JSON.parse(screen.getByTestId("document").textContent!);
+    expect(doc.pois).toHaveLength(0);
+    expect(doc.nodes).toHaveLength(0);
+  });
+
+  it("does not have the 'Камера (двигать)' button in the toolbar", () => {
+    render(<Editor />);
+    expect(screen.queryByRole("button", { name: /Камера \(двигать\)/i })).toBeNull();
+  });
+
+  it("aligns preset rooms and corridors to the exact same 20-unit grid", () => {
+    render(<Editor />);
+    fireEvent.click(screen.getByRole("button", { name: "+ Готовая комната" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Готовый коридор" }));
+
+    const doc = JSON.parse(screen.getByTestId("document").textContent!);
+    const room = doc.shapes.find((s: any) => s.kind === "room");
+    const corridor = doc.shapes.find((s: any) => s.kind === "corridor");
+    expect(room).toBeDefined();
+    expect(corridor).toBeDefined();
+
+    for (const pt of room.points) {
+      expect(pt.x % 20).toBe(0);
+      expect(pt.y % 20).toBe(0);
+    }
+    for (const pt of corridor.points) {
+      expect(pt.x % 20).toBe(0);
+      expect(pt.y % 20).toBe(0);
+    }
+  });
+
+  it("supports marquee selection to select, move, and delete multiple objects", () => {
+    function MultiEditor() {
+      const [doc, change] = useState({
+        ...emptyMapDocument(),
+        shapes: [
+          {
+            id: "wall-1",
+            kind: "wall" as const,
+            label: "Стена 1",
+            points: [{ x: 40, y: 40 }, { x: 100, y: 40 }],
+          },
+          {
+            id: "wall-2",
+            kind: "wall" as const,
+            label: "Стена 2",
+            points: [{ x: 40, y: 80 }, { x: 100, y: 80 }],
+          },
+        ],
+      });
+      return (
+        <>
+          <PlanEditor
+            mapId="map"
+            widthUnits={700}
+            heightUnits={500}
+            document={doc}
+            isAuthenticated
+            onChangeDocument={change}
+            onNotify={notify}
+            onSaveDocument={vi.fn()}
+          />
+          <output data-testid="document">{JSON.stringify(doc)}</output>
+        </>
+      );
+    }
+
+    render(<MultiEditor />);
+    const canvasEl = canvas();
+
+    const createPointerEvent = (type: string, clientX: number, clientY: number, button = 0) => {
+      const event = new Event(type, { bubbles: true, cancelable: true }) as any;
+      event.clientX = clientX;
+      event.clientY = clientY;
+      event.button = button;
+      event.pointerId = 1;
+      return event;
+    };
+
+    // Marquee drag over both walls (box from 20,20 to 120,120)
+    fireEvent(canvasEl, createPointerEvent("pointerdown", 20, 20, 0));
+    fireEvent(canvasEl, createPointerEvent("pointermove", 120, 120));
+    fireEvent(canvasEl, createPointerEvent("pointerup", 120, 120));
+
+    // Multi-selection panel should appear
+    expect(screen.getByText("Выбрано объектов")).toBeInTheDocument();
+    expect(screen.getByText("2 шт.")).toBeInTheDocument();
+
+    // Delete both objects via Delete button in multi-inspector
+    fireEvent.click(screen.getByRole("button", { name: /Удалить выбранные объекты/ }));
+    const docAfterDel = JSON.parse(screen.getByTestId("document").textContent!);
+    expect(docAfterDel.shapes).toHaveLength(0);
+  });
+
+  it("provides resize handles on selected room and allows resizing length and width", () => {
+    function ResizeEditor() {
+      const [doc, change] = useState({
+        ...emptyMapDocument(),
+        shapes: [
+          {
+            id: "test-room",
+            kind: "room" as const,
+            label: "Комната",
+            points: [
+              { x: 100, y: 100 },
+              { x: 200, y: 100 },
+              { x: 200, y: 200 },
+              { x: 100, y: 200 },
+            ],
+          },
+        ],
+      });
+      return (
+        <>
+          <PlanEditor
+            mapId="map"
+            widthUnits={700}
+            heightUnits={500}
+            document={doc}
+            isAuthenticated
+            onChangeDocument={change}
+            onNotify={notify}
+            onSaveDocument={vi.fn()}
+          />
+          <output data-testid="document">{JSON.stringify(doc)}</output>
+        </>
+      );
+    }
+
+    render(<ResizeEditor />);
+    const canvasEl = canvas();
+
+    // Click room polygon to select it
+    const roomPolygon = canvasEl.querySelector("polygon");
+    expect(roomPolygon).not.toBeNull();
+    fireEvent.click(roomPolygon!);
+
+    // Resize controls in Inspector should be visible
+    expect(screen.getByText(/Размеры \(сетка 20 ед\.\)/i)).toBeInTheDocument();
+    expect(screen.getAllByText("100 ед.")).toHaveLength(2);
+
+    // Click [+] for width in Inspector
+    const widthPlus = screen.getByTitle("Увеличить ширину на 20 ед.");
+    fireEvent.click(widthPlus);
+
+    const docAfterResize = JSON.parse(screen.getByTestId("document").textContent!);
+    const updatedRoom = docAfterResize.shapes[0];
+    expect(updatedRoom.points[1].x).toBe(220); // 100 + 120 = 220
   });
 });
