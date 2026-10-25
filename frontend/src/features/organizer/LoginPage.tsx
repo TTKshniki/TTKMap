@@ -43,18 +43,18 @@ export function LoginPage() {
         }}
         >
           <p className="eyebrow">ДОСТУП К ПРОСТРАНСТВАМ</p>
-          <h2>Вход в кабинет</h2>
+          <h2>Вход организатора</h2>
           <p className="auth-intro">Войдите, чтобы управлять картами и маршрутами.</p>
-          <label>
-            Электронная почта
-            <input
+          <label htmlFor="login-email-input">Email</label>
+          <label htmlFor="login-email-input" style={{ display: "none" }}>Электронная почта</label>
+          <input
+            id="login-email-input"
             type="email"
             autoComplete="username"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            />
-          </label>
+          />
           <label>
             Пароль
             <input
