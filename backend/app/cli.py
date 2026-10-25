@@ -56,6 +56,12 @@ def main() -> None:
     password = getpass.getpass("Organizer password (minimum 12 characters): ")
     if not 12 <= len(password) <= 128:
         raise SystemExit("Password must contain 12..128 characters")
+    from backend.app.password_validation import validate_registration_password
+
+    try:
+        validate_registration_password(password, args.email)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     print(create_organizer(args.email, password))
 
 

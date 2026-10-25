@@ -116,6 +116,16 @@ def test_register_creates_organizer_and_session(client: TestClient):
     short = client.post("/api/v1/auth/register", json={"email": "x@example.test", "password": "short"}, headers=origin)
     assert short.status_code == 422
 
+    # Weak repetitive password rejected
+    repetitive = client.post("/api/v1/auth/register", json={"email": "rep@example.test", "password": "123123123123!a"}, headers=origin)
+    assert repetitive.status_code == 422
+    assert "повторяющийся шаблон" in repetitive.text
+
+    # Password containing login/email token rejected (e.g. 2010 from kriper2010)
+    with_token = client.post("/api/v1/auth/register", json={"email": "kriper2010@example.test", "password": "MySecretPassword2010!"}, headers=origin)
+    assert with_token.status_code == 422
+    assert "2010" in with_token.text
+
     assert client.get("/api/v1/auth/session").status_code == 200
 
     # The new organizer can log in with the same credentials after logout.

@@ -67,14 +67,14 @@ describe('Design portal backend wiring', () => {
     // Switch tab to registration
     fireEvent.click(screen.getByRole('button', { name: 'Регистрация' }));
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'business@example.org' } });
-    fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'secure-business-password-123' } });
-    fireEvent.change(screen.getByLabelText('Повторите пароль'), { target: { value: 'secure-business-password-123' } });
+    fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'secure-corporate-password-123' } });
+    fireEvent.change(screen.getByLabelText('Повторите пароль'), { target: { value: 'secure-corporate-password-123' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Зарегистрироваться' }));
 
     await waitFor(() => expect(apiClient.register).toHaveBeenCalledWith({
       email: 'business@example.org',
-      password: 'secure-business-password-123',
+      password: 'secure-corporate-password-123',
     }));
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/organize'));
@@ -103,5 +103,23 @@ describe('Design portal backend wiring', () => {
     // Should display User cabinet with "Пользователь" badge and WITHOUT "Управлять картами" button
     await screen.findByText('Пользователь');
     expect(screen.queryByText('Управлять картами')).not.toBeInTheDocument();
+  });
+
+  it('blocks registration when password is weak or contains login tokens', async () => {
+    render(<DesignPortal />);
+
+    await screen.findByText('Пространства и объекты');
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Регистрация' }));
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'kriper2010@example.org' } });
+    fireEvent.change(screen.getByLabelText('Пароль'), { target: { value: 'MySecret2010!#' } });
+    fireEvent.change(screen.getByLabelText('Повторите пароль'), { target: { value: 'MySecret2010!#' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Зарегистрироваться' }));
+
+    expect(apiClient.register).not.toHaveBeenCalled();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/2010/);
   });
 });

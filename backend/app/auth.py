@@ -165,7 +165,18 @@ def require_origin(origin: Annotated[str | None, Header()] = None,
     # (none is configured), and such requests never fall back to the cookie.
     if authorization is not None:
         return
-    if origin != settings.app_origin:
+    allowed = {settings.app_origin}
+    if "127.0.0.1" in settings.app_origin or "localhost" in settings.app_origin:
+        port = settings.app_origin.split(":")[-1]
+        allowed.update({
+            f"http://127.0.0.1:{port}",
+            f"http://localhost:{port}",
+            "http://127.0.0.1:8000",
+            "http://localhost:8000",
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+        })
+    if origin not in allowed:
         raise ApiError(403, "FORBIDDEN", "Request origin is not allowed")
 
 

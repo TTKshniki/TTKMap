@@ -94,4 +94,132 @@ describe("wall-aware route graph", () => {
       expect(edgeIsBlocked(doc, a, b)).toBe(false);
     }
   });
+
+  it("generates a unified building graph connecting rooms through corridors and doors", () => {
+    const doc: MapDocument = {
+      title: "Building Test",
+      description: "",
+      is_published: false,
+      scale_m_per_unit: 0.1,
+      max_walk_gap_units: 20,
+      background_asset_id: null,
+      buildings: [],
+      floors: [],
+      shapes: [
+        {
+          id: "corridor-1",
+          kind: "corridor",
+          label: "Коридор 1",
+          points: [
+            { x: 100, y: 100 },
+            { x: 300, y: 100 },
+            { x: 300, y: 140 },
+            { x: 100, y: 140 },
+          ],
+        },
+        {
+          id: "corridor-2",
+          kind: "corridor",
+          label: "Коридор 2",
+          points: [
+            { x: 100, y: 140 },
+            { x: 300, y: 140 },
+            { x: 300, y: 180 },
+            { x: 100, y: 180 },
+          ],
+        },
+        {
+          id: "room-1",
+          kind: "room",
+          label: "Помещение 1",
+          points: [
+            { x: 300, y: 100 },
+            { x: 440, y: 100 },
+            { x: 440, y: 200 },
+            { x: 300, y: 200 },
+          ],
+        },
+        {
+          id: "room-2",
+          kind: "room",
+          label: "Помещение 2",
+          points: [
+            { x: 140, y: 180 },
+            { x: 260, y: 180 },
+            { x: 260, y: 280 },
+            { x: 140, y: 280 },
+          ],
+        },
+      ],
+      nodes: [],
+      edges: [],
+      pois: [
+        {
+          id: "door-1",
+          title: "Дверь в Помещение 1",
+          category: "custom",
+          category_label: "Дверь",
+          description: "[300,120 -> 300,140]",
+          x: 300,
+          y: 130,
+          nav_node_id: null,
+          floor_id: null,
+        },
+        {
+          id: "door-2",
+          title: "Дверь в Помещение 2",
+          category: "custom",
+          category_label: "Дверь",
+          description: "[180,180 -> 220,180]",
+          x: 200,
+          y: 180,
+          nav_node_id: null,
+          floor_id: null,
+        },
+      ],
+      panoramas: [],
+      hotspots: [],
+    };
+
+    const built = buildGraphFromDoors(doc);
+    expect(built.nodes.length).toBeGreaterThanOrEqual(4);
+    expect(built.edges.length).toBeGreaterThanOrEqual(3);
+
+    // Verify adjacency / path from Room 2 to Room 1 via BFS
+    const adj = new Map<string, string[]>();
+    for (const e of built.edges) {
+      if (!adj.has(e.a)) adj.set(e.a, []);
+      if (!adj.has(e.b)) adj.set(e.b, []);
+      adj.get(e.a)!.push(e.b);
+      adj.get(e.b)!.push(e.a);
+    }
+
+    const room1Poi = built.pois.find((p) => p.title.includes("Помещение 1"))!;
+    const room2Poi = built.pois.find((p) => p.title.includes("Помещение 2"))!;
+    expect(room1Poi).toBeDefined();
+    expect(room2Poi).toBeDefined();
+
+    const startNode = room2Poi.nav_node_id!;
+    const goalNode = room1Poi.nav_node_id!;
+
+    const queue = [startNode];
+    const visited = new Set<string>([startNode]);
+    let reached = false;
+
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      if (cur === goalNode) {
+        reached = true;
+        break;
+      }
+      for (const next of adj.get(cur) ?? []) {
+        if (!visited.has(next)) {
+          visited.add(next);
+          queue.push(next);
+        }
+      }
+    }
+
+    expect(reached).toBe(true);
+  });
 });
