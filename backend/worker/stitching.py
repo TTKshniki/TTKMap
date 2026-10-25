@@ -1,8 +1,8 @@
 """The only production Hugin/enblend pipeline; caller owns its work directory."""
 from pathlib import Path
 import os
-import shutil
 from typing import Callable
+from PIL import Image, ImageOps
 from backend.worker.runner import StitchError, run_command
 from backend.worker.quality import StitchResult, measure_and_crop, validate_control_points, validate_reprojection
 
@@ -16,7 +16,12 @@ def stitch(frames: list[Path], work_root: Path, hfov_hint_deg: float = 60,
     sources = []
     for index, source in enumerate(frames):
         target = work_root / f'frame-{index:02d}.jpg'
-        shutil.copyfile(source, target)
+        # Bound feature extraction cost independently of phone resolution.
+        # The original protected frame remains untouched.
+        with Image.open(source) as image:
+            image = ImageOps.exif_transpose(image).convert('RGB')
+            image.thumbnail((800, 800), Image.Resampling.LANCZOS)
+            image.save(target, 'JPEG', quality=90)
         sources.append(str(target))
     project = str(work_root / 'capture.pto')
     def run(args, percent, timeout=120):

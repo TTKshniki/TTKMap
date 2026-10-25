@@ -6,6 +6,7 @@ export type Health = { status: "ok" };
 export type ApiError = { error: { code: "BAD_REQUEST" | "AUTH_REQUIRED" | "INVALID_CREDENTIALS" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "VERSION_CONFLICT" | "VALIDATION_ERROR" | "PUBLISH_BLOCKED" | "ROUTE_NOT_FOUND" | "MEDIA_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "RATE_LIMITED" | "INTERNAL_ERROR" | "SERVICE_UNAVAILABLE"; message: string; issues: Array<ValidationIssue>; current_revision: (number) | null } };
 export type ValidationIssue = { path: string; message: string };
 export type User = { id: UUID; email: string; role: "organizer" };
+export type RegisterRequest = { email: string; password: string };
 export type LoginRequest = { email: string; password: string };
 export type Session = { user: User; csrf_token: string; expires_at: Timestamp };
 export type BearerToken = { token: string; token_type: "bearer"; expires_at: Timestamp; user: User };

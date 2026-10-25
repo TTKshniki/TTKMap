@@ -75,4 +75,20 @@ describe('public link routing', () => {
     );
     expect(requestedSlugs).toEqual(['venue-created-by-organizer']);
   });
+
+  it('blocks regular user from accessing organizer editor routes', async () => {
+    localStorage.setItem('ttk_account_role', 'user');
+    vi.mocked(apiClient.session).mockResolvedValueOnce({
+      user: { id: 'user-1', email: 'visitor@example.org', role: 'organizer' },
+      csrf_token: 'csrf',
+      expires_at: '2026-10-25T12:00:00Z',
+    });
+
+    goTo('/organize');
+    render(<App />);
+
+    expect(await screen.findByText('Доступ к редактору ограничен')).toBeInTheDocument();
+    expect(screen.getByText(/У пользователя нет доступа к редактору/)).toBeInTheDocument();
+    localStorage.removeItem('ttk_account_role');
+  });
 });

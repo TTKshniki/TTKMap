@@ -1,8 +1,8 @@
 # TTKMap Frontend
 
-React/TypeScript/Vite. Общие DTO генерируются из `CONTRACTS/openapi.yaml` в `CONTRACTS/types.ts`.
+React/TypeScript/Vite. Общие DTO генерируются из `CONTRACTS/openapi.yaml` в `CONTRACTS/types.ts`. Главная `/` использует перенесённый интерфейс `Design` без смены frontend-стека; его адаптер к серверу находится в `features/design/DesignPortal.tsx`.
 
-`App.tsx` связывает Router и страницы. `/login` получает серверную cookie-сессию; `/organize` и `/organize/:mapId` проверяют её. Публичные `/m/:slug` и `/embed/:slug` используют один `PublicSpacePage`.
+`App.tsx` связывает Router и страницы. Главный экран и встроенная карта каталога — демонстрационные, они не читают данные карт из API. Вход и выход в портале используют API-сессию; кнопка управления открывает существующий кабинет `/organize`. `/login` остаётся доступным напрямую, `/organize` и `/organize/:mapId` проверяют серверную сессию. Публичные `/m/:slug` и `/embed/:slug` используют один `PublicSpacePage`; поиск в портале открывает опубликованную карту по slug.
 
 - `features/organizer/useWorkspace.ts` владеет серверной revision, локальным draft, assets и сохранением. Ответ 412 сохраняет локальные правки; изменения во время save не затираются. Перед уходом с изменённой карты есть подтверждение.
 - `features/plan` содержит SVG редактор, операции документа и inspector. Координаты преобразуются обратной screen CTM; подложка одинакова в редакторе, picker и public view.

@@ -82,3 +82,44 @@ export function pointInPolygon(point: Point, polygon: Point[]): boolean {
   }
   return inside;
 }
+
+function orientation(a: Point, b: Point, c: Point): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+/** True when the closed segments a1–a2 and b1–b2 touch or cross. */
+export function segmentsIntersect(a1: Point, a2: Point, b1: Point, b2: Point): boolean {
+  const d1 = orientation(b1, b2, a1);
+  const d2 = orientation(b1, b2, a2);
+  const d3 = orientation(a1, a2, b1);
+  const d4 = orientation(a1, a2, b2);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+      ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+    return true;
+  }
+  const onSegment = (p: Point, q: Point, r: Point) =>
+    Math.min(p.x, r.x) <= q.x && q.x <= Math.max(p.x, r.x) &&
+    Math.min(p.y, r.y) <= q.y && q.y <= Math.max(p.y, r.y);
+  return (d1 === 0 && onSegment(b1, a1, b2)) ||
+         (d2 === 0 && onSegment(b1, a2, b2)) ||
+         (d3 === 0 && onSegment(a1, b1, a2)) ||
+         (d4 === 0 && onSegment(a1, b2, a2));
+}
+
+export function distanceToSegment(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return distance(p, a);
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
+  return distance(p, { x: a.x + t * dx, y: a.y + t * dy });
+}
+
+/** Midpoint of the segment, used to test whether a crossing lands in an opening. */
+export function segmentMidpoint(a: Point, b: Point): Point {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+export function segmentLengthWithin(p: Point, a: Point, b: Point, radius: number): boolean {
+  return distanceToSegment(p, a, b) <= radius;
+}

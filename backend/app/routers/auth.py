@@ -5,6 +5,7 @@ from fastapi import APIRouter, Cookie, Depends, Header, Request, Response
 from backend.app.auth import (
     bearer_from_header,
     check_login_rate_limit,
+    create_organizer,
     release_successful_login,
     create_session,
     require_csrf,
@@ -16,7 +17,7 @@ from backend.app.auth import (
 from backend.app.config import settings
 from backend.app.db import database
 from backend.app.errors import ApiError
-from backend.app.schemas import LoginRequest, Session, User
+from backend.app.schemas import LoginRequest, RegisterRequest, Session, User
 
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -46,6 +47,24 @@ def login(payload: LoginRequest, request: Request, response: Response, _: None =
     token, csrf_token, expires_at = create_session(row["id"])
     response.set_cookie("ttk_session", token, httponly=True, secure=settings.cookie_secure,
                         samesite="lax", max_age=settings.session_ttl_seconds, path="/")
+    return _session_response(row, csrf_token, expires_at.isoformat().replace("+00:00", "Z"))
+
+
+@router.post("/register", response_model=Session, status_code=201)
+def register(payload: RegisterRequest, request: Request, response: Response, _: None = Depends(require_origin)):
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    normalized_email = payload.email.strip().lower()
+    reservation = check_login_rate_limit(client_ip, normalized_email)
+    with database() as connection:
+        existing = connection.execute("SELECT id FROM users WHERE email=?", (normalized_email,)).fetchone()
+        if existing is not None:
+            raise ApiError(409, "CONFLICT", "An account with this email already exists")
+    user_id = create_organizer(normalized_email, payload.password)
+    release_successful_login(client_ip, normalized_email, reservation)
+    token, csrf_token, expires_at = create_session(user_id)
+    response.set_cookie("ttk_session", token, httponly=True, secure=settings.cookie_secure,
+                        samesite="lax", max_age=settings.session_ttl_seconds, path="/")
+    row = {"id": user_id, "email": normalized_email, "role": "organizer"}
     return _session_response(row, csrf_token, expires_at.isoformat().replace("+00:00", "Z"))
 
 

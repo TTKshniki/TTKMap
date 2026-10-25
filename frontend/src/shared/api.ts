@@ -12,6 +12,7 @@ import type {
   MapSummary,
   OrganizerMap,
   PublicMap,
+  RegisterRequest,
   RouteRequest,
   RouteResponse,
   Session,
@@ -97,6 +98,16 @@ export const apiClient = {
 
   login: async (input: LoginRequest): Promise<Session> => {
     const sess = await request<Session>('/api/v1/auth/login', {
+      method: 'POST',
+      headers: originHeader(),
+      body: JSON.stringify(input),
+    });
+    setCsrfToken(sess.csrf_token);
+    return sess;
+  },
+
+  register: async (input: RegisterRequest): Promise<Session> => {
+    const sess = await request<Session>('/api/v1/auth/register', {
       method: 'POST',
       headers: originHeader(),
       body: JSON.stringify(input),

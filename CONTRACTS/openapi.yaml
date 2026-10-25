@@ -55,6 +55,40 @@ paths:
           $ref: '#/components/responses/Error'
         '429':
           $ref: '#/components/responses/Error'
+  /api/v1/auth/register:
+    post:
+      operationId: register
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Organizer created and session established
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: HttpOnly, SameSite=Lax organizer session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
   /api/v1/auth/session:
     get:
       operationId: getSession
@@ -279,6 +313,38 @@ paths:
       description: Atomic full document replacement. Requires matching ETag. Publishing
         requires at least one POI; panoramas and graph coverage are optional and gaps
         are reported in route responses.
+  /api/v1/maps/{map_id}/model3d.glb:
+    parameters:
+    - $ref: '#/components/parameters/MapId'
+    get:
+      operationId: getMapModel3D
+      summary: Generate GLB 2.0 dollhouse model from map document (organizer only)
+      responses:
+        '200':
+          description: GLB 2.0 binary with textured floors, extruded walls, POI markers.
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: Revision-based cache key
+          content:
+            model/gltf-binary:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not Modified (ETag matched)
+        '401':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+      description: Generates 3D scene from current map state - floors stacked by elevation,
+        background images as textures, shapes extruded to height, POI as colored markers.
+        Requires scale_m_per_unit. Cacheable by revision ETag. Organizer only.
   /api/v1/maps/{map_id}/assets:
     parameters:
     - $ref: '#/components/parameters/MapId'
@@ -548,6 +614,39 @@ paths:
           $ref: '#/components/responses/Error'
         '500':
           $ref: '#/components/responses/Error'
+  /api/v1/public/maps/{slug}/model3d.glb:
+    get:
+      operationId: getPublicModel3D
+      summary: Public 3D model of a published map
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/Slug'
+      - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: GLB file (glTF 2.0 binary)
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            model/gltf-binary:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Model unchanged
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
   /api/v1/public/maps/{slug}/route:
     post:
       operationId: buildRoute
@@ -813,6 +912,20 @@ components:
           type: string
           enum:
           - organizer
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - email
+      - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
     LoginRequest:
       type: object
       additionalProperties: false

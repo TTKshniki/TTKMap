@@ -26,8 +26,10 @@ def run_command(args: list[str], *, cwd: Path, checkpoint: Callable[[], None], t
         stdin.write(input_text.encode())
         stdin.seek(0)
         try:
+            platform_options = ({'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt'
+                                else {'start_new_session': True})
             process = subprocess.Popen(args, cwd=cwd, stdin=stdin, stdout=log, stderr=subprocess.STDOUT,
-                                       start_new_session=True, env={**os.environ, 'OMP_NUM_THREADS': os.getenv('STITCH_THREADS', '2')})
+                                       **platform_options, env={**os.environ, 'OMP_NUM_THREADS': os.getenv('STITCH_THREADS', '2')})
         except OSError as exc:
             raise StitchError('TOOL_FAILED', f'Cannot start {args[0]}') from exc
         started = time.monotonic()

@@ -33,6 +33,20 @@ class User(StrictModel):
     role: Literal["organizer"]
 
 
+class RegisterRequest(StrictModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        local, separator, domain = normalized.partition("@")
+        if not separator or not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
+            raise ValueError("email must be a valid address")
+        return normalized
+
+
 class Session(StrictModel):
     user: User
     csrf_token: str

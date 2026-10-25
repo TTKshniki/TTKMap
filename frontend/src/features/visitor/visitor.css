@@ -68,11 +68,31 @@
   max-width: 900px;
   transform-origin: center center;
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  background: #ffffff;
+  /* Blueprint sheet: same 20-unit minor grid as the editor, plus a heavier 100-unit rule. */
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.18) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.18) 1px, transparent 1px),
+    linear-gradient(to right, rgba(100, 116, 139, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(100, 116, 139, 0.12) 1px, transparent 1px);
+  background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
   border-radius: 1rem;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  border: 1px solid #cbd5e1;
+  box-shadow: inset 0 0 0 6px rgba(255, 255, 255, 0.6), 0 12px 30px rgba(15, 23, 42, 0.08);
   overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ttk-plan__stage {
+    background-color: #0f172a;
+    background-image:
+      linear-gradient(to right, rgba(51, 65, 85, 0.85) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(51, 65, 85, 0.85) 1px, transparent 1px),
+      linear-gradient(to right, rgba(30, 41, 59, 0.9) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(30, 41, 59, 0.9) 1px, transparent 1px);
+    border-color: #334155;
+    box-shadow: inset 0 0 0 6px rgba(15, 23, 42, 0.6), 0 12px 30px rgba(0, 0, 0, 0.4);
+  }
 }
 
 .ttk-plan__svg {

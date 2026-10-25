@@ -263,6 +263,42 @@ export const Icon: React.FC<IconProps> = ({ name, className = 'w-4 h-4' }: IconP
           <path d="m21 21-4.3-4.3" />
         </svg>
       );
+    case 'map-pin':
+      return (
+        <svg {...props}>
+          <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
+          <circle cx="12" cy="10" r="2.5" />
+        </svg>
+      );
+    case 'chevron-down':
+      return (
+        <svg {...props}>
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      );
+    case 'clock':
+      return (
+        <svg {...props}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 6v6l4 2" />
+        </svg>
+      );
+    case 'eye':
+      return (
+        <svg {...props}>
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
+    case 'qr-code':
+      return (
+        <svg {...props}>
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <path d="M14 14h3v3h-3zM18 18h3v3h-3zM20 14h1M14 20v1" />
+        </svg>
+      );
     case 'chevron-left':
       return (
         <svg {...props}>
@@ -365,6 +401,34 @@ export const Icon: React.FC<IconProps> = ({ name, className = 'w-4 h-4' }: IconP
           <rect width="16" height="16" x="4" y="4" rx="2" />
           <rect width="6" height="6" x="9" y="9" rx="1" />
           <path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2" />
+        </svg>
+      );
+    case 'copy':
+      return (
+        <svg {...props}>
+          <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+        </svg>
+      );
+    case 'check':
+      return (
+        <svg {...props}>
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      );
+    case 'external-link':
+      return (
+        <svg {...props}>
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <polyline points="15 3 21 3 21 9" />
+          <line x1="10" x2="21" y1="14" y2="3" />
+        </svg>
+      );
+    case 'code':
+      return (
+        <svg {...props}>
+          <polyline points="16 18 22 12 16 6" />
+          <polyline points="8 6 2 12 8 18" />
         </svg>
       );
     default:

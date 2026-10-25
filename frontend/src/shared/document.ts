@@ -5,7 +5,7 @@ export const emptyMapDocument = (title = 'Новая карта'): MapDocument =
   description: '',
   is_published: false,
   scale_m_per_unit: null,
-  max_walk_gap_units: 500,
+  max_walk_gap_units: 20,
   background_asset_id: null,
   shapes: [],
   nodes: [],

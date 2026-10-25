@@ -8,9 +8,22 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <main className="workspace narrow">
-      <h1>Вход организатора</h1>
-      <form
+    <main className="auth-screen">
+      <section className="auth-brand-panel">
+        <a className="brand-lockup brand-lockup--light flex items-center gap-2" href="/" aria-label="TTKMap">
+          <img src="/ttk-logo.png" alt="ТТК" className="h-8 w-auto object-contain" />
+          <small>MAP</small>
+        </a>
+        <div className="auth-brand-copy">
+          <p className="eyebrow">ПЛАТФОРМА КАРТ ПРОСТРАНСТВ</p>
+          <h1>Навигация начинается с точного плана.</h1>
+          <p>Создавайте интерактивные карты, размещайте панорамы и делитесь маршрутами с посетителями.</p>
+        </div>
+        <div className="auth-brand-footer"><span>TTKMap</span><span>Организаторский кабинет</span></div>
+      </section>
+      <section className="auth-form-wrap">
+        <form
+        className="auth-form"
         onSubmit={async (event) => {
           event.preventDefault();
           if (busy) return;
@@ -18,6 +31,9 @@ export function LoginPage() {
           setError(null);
           try {
             await apiClient.login({ email, password });
+            if (typeof window !== "undefined") {
+              localStorage.setItem("ttk_account_role", "organizer");
+            }
             navigate("/organize");
           } catch (e) {
             setError(e instanceof Error ? e.message : "Не удалось войти");
@@ -25,32 +41,36 @@ export function LoginPage() {
             setBusy(false);
           }
         }}
-      >
-        <label>
-          Email
-          <input
+        >
+          <p className="eyebrow">ДОСТУП К ПРОСТРАНСТВАМ</p>
+          <h2>Вход в кабинет</h2>
+          <p className="auth-intro">Войдите, чтобы управлять картами и маршрутами.</p>
+          <label>
+            Электронная почта
+            <input
             type="email"
             autoComplete="username"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-        <label>
-          Пароль
-          <input
+            />
+          </label>
+          <label>
+            Пароль
+            <input
             type="password"
             autoComplete="current-password"
             required
             minLength={12}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
-        {error && <p role="alert">{error}</p>}
-        <button disabled={busy}>{busy ? "Вход…" : "Войти"}</button>
-      </form>
-      <p>Учётную запись выдаёт администратор площадки.</p>
+            />
+          </label>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <button className="button button-primary auth-submit" disabled={busy}>{busy ? "Вход…" : "Войти"}</button>
+          <p className="auth-help">Учётную запись выдаёт администратор площадки.</p>
+        </form>
+      </section>
     </main>
   );
 }

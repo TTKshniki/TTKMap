@@ -11,9 +11,9 @@ describe("organizer login and sharing", () => {
   it("has empty credentials and never logs in on a network failure", async () => {
     vi.mocked(apiClient.login).mockRejectedValue(new Error("offline"));
     render(<LoginPage />);
-    expect(screen.getByLabelText("Email")).toHaveValue("");
+    expect(screen.getByLabelText("Электронная почта")).toHaveValue("");
     expect(screen.getByLabelText("Пароль")).toHaveValue("");
-    fireEvent.change(screen.getByLabelText("Email"), {
+    fireEvent.change(screen.getByLabelText("Электронная почта"), {
       target: { value: "org@example.test" },
     });
     fireEvent.change(screen.getByLabelText("Пароль"), {
@@ -28,7 +28,7 @@ describe("organizer login and sharing", () => {
   it("navigates only after server authentication", async () => {
     vi.mocked(apiClient.login).mockResolvedValue({} as never);
     render(<LoginPage />);
-    fireEvent.change(screen.getByLabelText("Email"), {
+    fireEvent.change(screen.getByLabelText("Электронная почта"), {
       target: { value: "org@example.test" },
     });
     fireEvent.change(screen.getByLabelText("Пароль"), {

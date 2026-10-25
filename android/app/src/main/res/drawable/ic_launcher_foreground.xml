@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer 360° Orbit Ring -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,54m-26,0a26,26 0,1 1,52 0a26,26 0,1 1,-52 0"
+        android:strokeWidth="4.5"
+        android:strokeColor="#FFFFFF" />
+    <!-- TTK Red Map Pin Center -->
+    <path
+        android:fillColor="#D14D40"
+        android:pathData="M54,32 C45.2,32 38,39.2 38,48 C38,59.5 54,74 54,74 C54,74 70,59.5 70,48 C70,39.2 62.8,32 54,32 Z" />
+    <!-- Inner White Core -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,48m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0" />
+</vector>

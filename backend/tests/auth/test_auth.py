@@ -95,3 +95,30 @@ def test_login_logout_csrf_origin_and_rate_limit(client: TestClient):
         assert res.status_code == 401
     blocked_other = client.post("/api/v1/auth/login", json={"email": "org2@example.test", "password": "valid-password-456"}, headers=origin)
     assert blocked_other.status_code == 429
+
+
+def test_register_creates_organizer_and_session(client: TestClient):
+    origin = {"Origin": "http://testserver"}
+    payload = {"email": "new-org@example.test", "password": "valid-password-123"}
+
+    assert client.post("/api/v1/auth/register", json=payload).status_code == 403
+    created = client.post("/api/v1/auth/register", json=payload, headers=origin)
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["user"]["email"] == "new-org@example.test"
+    assert body["user"]["role"] == "organizer"
+    assert "password" not in created.text and "password_hash" not in created.text
+    assert "ttk_session" in client.cookies
+
+    duplicate = client.post("/api/v1/auth/register", json=payload, headers=origin)
+    assert duplicate.status_code == 409 and duplicate.json()["error"]["code"] == "CONFLICT"
+
+    short = client.post("/api/v1/auth/register", json={"email": "x@example.test", "password": "short"}, headers=origin)
+    assert short.status_code == 422
+
+    assert client.get("/api/v1/auth/session").status_code == 200
+
+    # The new organizer can log in with the same credentials after logout.
+    assert client.post("/api/v1/auth/logout", headers={**origin, "X-CSRF-Token": body["csrf_token"]}).status_code == 204
+    clear_login_failures()
+    assert client.post("/api/v1/auth/login", json=payload, headers=origin).status_code == 200
