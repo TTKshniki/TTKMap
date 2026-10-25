@@ -103,15 +103,15 @@ function OrganizerSession({ children }: { children: ReactNode }) {
   }
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
-      <header className="app-bar flex items-center justify-between">
-        <a className="flex items-center gap-2 group select-none" href="/organize" aria-label="TTKMap, мои карты">
+        <header className="app-bar flex items-center justify-between">
+          <a className="app-bar__brand flex items-center gap-2 group select-none" href="/organize" aria-label="TTKMap, мои карты">
           <img src="/ttk-logo.png" alt="ТТК" className="h-7 w-auto object-contain" />
           <span className="text-[10px] font-black tracking-widest text-[#E31B23] uppercase">MAP</span>
           <b className="border-l border-slate-200 dark:border-slate-800 pl-3 ml-1 text-xs font-bold text-slate-700 dark:text-slate-300">
             Мои карты
           </b>
         </a>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <div className="app-bar__actions" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <button
             type="button"
             onClick={toggleDarkMode}
@@ -123,7 +123,7 @@ function OrganizerSession({ children }: { children: ReactNode }) {
           </button>
           <button
             type="button"
-            className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+            className="app-bar__back px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
             onClick={() => {
               if (!confirmNavigation()) return;
               navigate("/");
@@ -133,7 +133,7 @@ function OrganizerSession({ children }: { children: ReactNode }) {
           </button>
           <button
             type="button"
-            className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+            className="app-bar__logout px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
             onClick={async () => {
               if (!confirmNavigation()) return;
               try {

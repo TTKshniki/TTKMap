@@ -11,6 +11,8 @@ import { PanoramaViewer } from "../panorama";
 import { useWorkspace } from "./useWorkspace";
 import { iframeCode } from "./share";
 import { Icon } from "../../shared/Icon";
+import { buildVisitorModel } from "../visitor/model";
+import { IsometricViewer } from "../model3d/IsometricViewer";
 
 export function OrganizerWorkspace({ mapId }: { mapId: string }) {
   const ws = useWorkspace(mapId);
@@ -38,6 +40,7 @@ export function OrganizerWorkspace({ mapId }: { mapId: string }) {
     );
   const doc = ws.draft,
     map = ws.map.snapshot;
+  const preview = buildVisitorModel({ ...map, document: doc, assets: ws.assets });
   const selectedPano =
     doc.panoramas.find((p) => p.id === panoramaId) ?? doc.panoramas[0] ?? null;
   const edit = (update: (current: MapDocument) => MapDocument) => {
@@ -378,6 +381,39 @@ export function OrganizerWorkspace({ mapId }: { mapId: string }) {
           />
         }
       />
+      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm mt-6 space-y-3">
+        <div>
+          <span className="text-[10px] font-black uppercase tracking-wider text-[#E31B23]">
+            Предпросмотр
+          </span>
+          <h2 className="text-xl font-black text-slate-900 dark:text-white mt-1">
+            Изометрическая 3D-карта
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            {ws.dirty
+              ? "Показан текущий черновик. После сохранения загрузится модель, собранная сервером."
+              : preview.scaleMPerUnit
+                ? "Серверная GLB-модель построена по сохранённому плану."
+                : "Локальный 3D-просмотр. Для серверной GLB-модели задайте масштаб карты."}
+          </p>
+        </div>
+        <div className="h-[min(68vh,38rem)] min-h-[22rem] overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+          <IsometricViewer
+            modelUrl={ws.dirty || !preview.scaleMPerUnit ? null : `/api/v1/maps/${encodeURIComponent(mapId)}/model3d.glb`}
+            widthUnits={preview.widthUnits}
+            heightUnits={preview.heightUnits}
+            scaleMPerUnit={preview.scaleMPerUnit}
+            shapes={preview.shapes}
+            pois={preview.pois}
+            panoramas={preview.panoramas}
+            onSelectPoi={() => {}}
+            onOpenPanorama={(panorama) => {
+              setPanoramaId(panorama.id);
+              setViewerOpen(true);
+            }}
+          />
+        </div>
+      </section>
       <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm mt-6 space-y-4">
         <div>
           <span className="text-[10px] font-black uppercase tracking-wider text-[#E31B23]">

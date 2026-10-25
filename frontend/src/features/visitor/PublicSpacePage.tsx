@@ -17,8 +17,9 @@ import {
   type VisitorPanorama,
   type VisitorPoi,
 } from './model';
-import { PublicPlan } from './PublicPlan';
 import { usePublicMap } from './usePublicMap';
+import { IsometricViewer } from '../model3d/IsometricViewer';
+import { PublicPlan } from './PublicPlan';
 import './visitor.css';
 
 export interface PublicSpacePageProps {
@@ -45,6 +46,7 @@ export const PublicSpacePage: React.FC<PublicSpacePageProps> = ({ slug, mode = '
   const [routeError, setRouteError] = useState<string | null>(null);
   const [routeBusy, setRouteBusy] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [planView, setPlanView] = useState<'3d' | '2d'>('3d');
   const [notice, setNotice] = useState<Notice>(null);
   const [activePanoramaId, setActivePanoramaId] = useState<string | null>(null);
   const [panoramaYaw, setPanoramaYaw] = useState(0);
@@ -420,21 +422,89 @@ export const PublicSpacePage: React.FC<PublicSpacePageProps> = ({ slug, mode = '
         )}
 
         <section className="flex-1 min-w-0 min-h-0 flex flex-col">
+          {!isEmbed && (
+            <div className="ttk-plan-view-toggle" role="group" aria-label="Режим карты">
+              <button type="button" aria-pressed={planView === '2d'} onClick={() => setPlanView('2d')}>
+                2D план
+              </button>
+              <button type="button" aria-pressed={planView === '3d'} onClick={() => setPlanView('3d')}>
+                3D изометрия
+              </button>
+            </div>
+          )}
           <div className="flex-1 min-h-0">
-            <PublicPlan
-              model={model}
-              selectedPoiId={selectedPoiId}
-              activePanoramaId={activePanoramaId}
-              routePolyline={routePolylines}
-              zoom={zoom}
-              compact={isEmbed}
-              onSelectPoi={handleSelectPoi}
-              onOpenPanorama={(panorama) => openPanorama(panorama)}
-              onZoomIn={() => setZoom((value) => Math.min(2.2, value + 0.2))}
-              onZoomOut={() => setZoom((value) => Math.max(0.8, value - 0.2))}
-              onResetZoom={() => setZoom(1)}
-            />
+            {planView === '2d' ? (
+              <PublicPlan
+                model={model}
+                selectedPoiId={selectedPoiId}
+                activePanoramaId={activePanoramaId}
+                routePolyline={routePolylines}
+                zoom={zoom}
+                compact={isEmbed}
+                onSelectPoi={handleSelectPoi}
+                onOpenPanorama={(panorama) => openPanorama(panorama)}
+                onZoomIn={() => setZoom((value) => Math.min(2.2, value + 0.2))}
+                onZoomOut={() => setZoom((value) => Math.max(0.8, value - 0.2))}
+                onResetZoom={() => setZoom(1)}
+              />
+            ) : (
+              <IsometricViewer
+                modelUrl={`/api/v1/public/maps/${encodeURIComponent(model.slug)}/model3d.glb`}
+                widthUnits={model.widthUnits}
+                heightUnits={model.heightUnits}
+                scaleMPerUnit={model.scaleMPerUnit}
+                shapes={model.shapes}
+                pois={model.pois}
+                panoramas={model.panoramas}
+                selectedPoiId={selectedPoiId}
+                routePolyline={routePolylines}
+                compact={isEmbed}
+                onSelectPoi={handleSelectPoi}
+                onOpenPanorama={(panorama) => openPanorama(panorama)}
+                onZoomIn={() => setZoom((value) => Math.min(2.2, value + 0.2))}
+                onZoomOut={() => setZoom((value) => Math.max(0.8, value - 0.2))}
+                onResetZoom={() => setZoom(1)}
+              />
+            )}
+            <div className="sr-only" aria-label="Объекты 3D-карты">
+              {model.pois.map((poi) => (
+                <button key={poi.id} type="button" onClick={() => handleSelectPoi(poi)} aria-label={`Точка: ${poi.title}`}>
+                  {poi.title}
+                </button>
+              ))}
+              {model.panoramas.map((panorama) => (
+                <button key={panorama.id} type="button" onClick={() => openPanorama(panorama)} aria-label={`Панорама: ${panorama.title}`}>
+                  {panorama.title}
+                </button>
+              ))}
+            </div>
           </div>
+          {!isEmbed && (
+            <div className="flex gap-2 overflow-x-auto custom-scrollbar p-2 border-t border-slate-200 bg-white">
+              {visiblePois.map((poi) => (
+                <button
+                  key={poi.id}
+                  type="button"
+                  onClick={() => handleSelectPoi(poi)}
+                  aria-label={`Выбрать объект: ${poi.title}`}
+                  className={`ttk-visitor-chip shrink-0 ${selectedPoiId === poi.id ? 'is-active' : ''}`}
+                >
+                  {poi.title}
+                </button>
+              ))}
+              {model.panoramas.map((panorama) => (
+                <button
+                  key={panorama.id}
+                  type="button"
+                  onClick={() => openPanorama(panorama)}
+                  aria-label={`Открыть панораму: ${panorama.title}`}
+                  className="ttk-visitor-chip shrink-0"
+                >
+                  360° · {panorama.title}
+                </button>
+              ))}
+            </div>
+          )}
 
           {isEmbed && (
             <div className="flex gap-1.5 overflow-x-auto custom-scrollbar p-2 border-t border-slate-200 bg-white">

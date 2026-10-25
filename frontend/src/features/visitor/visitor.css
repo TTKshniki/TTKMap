@@ -259,6 +259,31 @@
   color: #fff;
 }
 
+.ttk-plan-view-toggle {
+  display: flex;
+  gap: .25rem;
+  padding: .3rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.ttk-plan-view-toggle button {
+  min-height: 2.5rem;
+  flex: 1;
+  border: 1px solid #e2e8f0;
+  border-radius: .7rem;
+  background: #f8fafc;
+  color: #475569;
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.ttk-plan-view-toggle button[aria-pressed="true"] {
+  border-color: #1d6860;
+  background: #1d6860;
+  color: #fff;
+}
+
 .ttk-visitor-empty {
   display: flex;
   flex-direction: column;
