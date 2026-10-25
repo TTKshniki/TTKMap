@@ -37,7 +37,10 @@ import ru.ttk.map.core.network.TtkApiException
 import ru.ttk.map.core.network.TtkNetworkEnvironment
 import ru.ttk.map.core.model.AnalyticsEvent
 import ru.ttk.map.core.model.AnalyticsEventType
+import ru.ttk.map.core.model.DailyActivityStat
+import ru.ttk.map.core.model.HourlyActivityStat
 import ru.ttk.map.core.model.MapAnalyticsSummary
+import ru.ttk.map.core.model.PoiClickStat
 import java.io.File
 import java.util.UUID
 
@@ -150,6 +153,32 @@ class TtkMapRepository(
             db.deleteCachedMap(map.snapshot.slug)
         }
         return map to nextEtag
+    }
+
+    suspend fun publishMap(mapId: String): OrganizerMap {
+        val (current, _) = getOrganizerMap(mapId)
+        val doc = current.snapshot.document
+        val docToPublish = if (doc.pois.isEmpty()) {
+            val autoPoi = Poi(
+                id = UUID.randomUUID().toString(),
+                title = "Главный вход",
+                category = PoiCategory.ENTRANCE,
+                x = current.snapshot.widthUnits / 2.0,
+                y = current.snapshot.heightUnits / 2.0
+            )
+            doc.copy(isPublished = true, pois = listOf(autoPoi))
+        } else {
+            doc.copy(isPublished = true)
+        }
+        val (saved, _) = replaceMapDocument(mapId, docToPublish)
+        return saved
+    }
+
+    suspend fun unpublishMap(mapId: String): OrganizerMap {
+        val (current, _) = getOrganizerMap(mapId)
+        val doc = current.snapshot.document.copy(isPublished = false)
+        val (saved, _) = replaceMapDocument(mapId, doc)
+        return saved
     }
 
     suspend fun deleteMap(mapId: String, ifMatchOverride: String? = null) {
@@ -390,6 +419,63 @@ class TtkMapRepository(
     }
 
     suspend fun getAnalyticsSummary(mapIdFilter: String? = null): MapAnalyticsSummary {
+        if (!mapIdFilter.isNullOrBlank()) {
+            runCatching {
+                val res = network.requestJson("GET", "/api/v1/maps/$mapIdFilter/analytics")
+                val json = JSONObject(res.body)
+                val totals = json.optJSONObject("totals")
+                val topPoisArray = json.optJSONArray("top_pois")
+                val byDayArray = json.optJSONArray("by_day")
+
+                val views = totals?.optInt("map_view", 0) ?: 0
+                val poiClicks = totals?.optInt("poi_click", 0) ?: 0
+                val routes = totals?.optInt("route_built", 0) ?: 0
+
+                val topPois = mutableListOf<PoiClickStat>()
+                if (topPoisArray != null && topPoisArray.length() > 0) {
+                    val totalClicks = (0 until topPoisArray.length()).map { i ->
+                        topPoisArray.optJSONObject(i)?.optInt("clicks", 0) ?: 0
+                    }.sum().coerceAtLeast(1)
+
+                    for (i in 0 until topPoisArray.length()) {
+                        val item = topPoisArray.optJSONObject(i) ?: continue
+                        val pId = item.optString("poi_id")
+                        val pTitle = item.optString("title").ifBlank { "Объект" }
+                        val clicks = item.optInt("clicks", 0)
+                        topPois.add(
+                            PoiClickStat(
+                                poiId = pId,
+                                title = pTitle,
+                                category = PoiCategory.CUSTOM,
+                                clickCount = clicks,
+                                percentage = ((clicks.toFloat() / totalClicks) * 100f)
+                            )
+                        )
+                    }
+                }
+
+                val dayLabels = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+                val dailyStats = dayLabels.mapIndexed { index: Int, label: String ->
+                    val dayItem = if (byDayArray != null && index < byDayArray.length()) {
+                        byDayArray.optJSONObject(index)
+                    } else null
+                    val dayViews = (dayItem?.optInt("map_view", 0) ?: 0) + (dayItem?.optInt("poi_click", 0) ?: 0)
+                    DailyActivityStat(dateLabel = label, eventCount = dayViews)
+                }
+
+                return MapAnalyticsSummary(
+                    mapId = mapIdFilter,
+                    totalViews = views,
+                    totalPoiClicks = poiClicks,
+                    totalRoutesBuilt = routes,
+                    totalPanoramaViews = 0,
+                    topPois = topPois,
+                    categoryDistribution = emptyMap(),
+                    hourlyActivity = (0..23).map { HourlyActivityStat(hourOfDay = it, eventCount = 0) },
+                    dailyActivity = dailyStats
+                )
+            }
+        }
         return db.getAnalyticsSummary(mapIdFilter)
     }
 

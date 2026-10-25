@@ -77,6 +77,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -108,6 +109,9 @@ import ru.ttk.map.core.model.MultiFloorHelper
 import ru.ttk.map.core.model.PoiCategory
 import ru.ttk.map.core.network.TtkApiException
 import ru.ttk.map.core.repository.TtkMapRepository
+import ru.ttk.map.ui.components.FullscreenExpandIcon
+import ru.ttk.map.ui.components.FullscreenExpandedDialog
+import ru.ttk.map.ui.components.Interactive2DPlanCanvas
 import ru.ttk.map.ui.components.poiCategoryColor
 import ru.ttk.map.ui.theme.TtkBrandRed
 import ru.ttk.map.ui.theme.TtkDeepTeal
@@ -398,32 +402,53 @@ private fun OrganizerWorkspaceContent(
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Top Tab Bar for Organizer Modules
-                TabRow(
-                    selectedTabIndex = activeTab.ordinal,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = TtkBrandRed,
-                    indicator = { tabPositions ->
-                        TabRowDefaults.SecondaryIndicator(
-                            modifier = Modifier.tabIndicatorOffset(tabPositions[activeTab.ordinal]),
-                            color = TtkBrandRed,
-                            height = 3.dp
-                        )
-                    }
+                // Top Tab Bar for Organizer Modules with custom weights (giving "Пространства" generous space on the left)
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 1.dp
                 ) {
-                    OrganizerHubTab.entries.forEach { tab ->
-                        Tab(
-                            selected = activeTab == tab,
-                            onClick = { activeTab = tab },
-                            text = {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OrganizerHubTab.entries.forEach { tab ->
+                            val isSelected = activeTab == tab
+                            val tabWeight = when (tab) {
+                                OrganizerHubTab.SPACES -> 1.45f
+                                OrganizerHubTab.ANALYTICS -> 1.10f
+                                OrganizerHubTab.AI_STUDIO -> 0.55f
+                                OrganizerHubTab.CAMPUS -> 0.90f
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .weight(tabWeight)
+                                    .clickable { activeTab = tab }
+                                    .padding(vertical = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
                                 Text(
                                     text = tab.label,
-                                    fontWeight = if (activeTab == tab) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 12.sp,
+                                    color = if (isSelected) TtkBrandRed else MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     softWrap = false
                                 )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.85f)
+                                        .height(3.dp)
+                                        .background(
+                                            color = if (isSelected) TtkBrandRed else Color.Transparent,
+                                            shape = RoundedCornerShape(2.dp)
+                                        )
+                                )
                             }
-                        )
+                        }
                     }
                 }
 
@@ -1099,6 +1124,7 @@ private fun StatCard(
 /**
  * Tab 3: AI / CV Plan Generator
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AiStudioTabContent(
     repository: TtkMapRepository,
@@ -1113,6 +1139,9 @@ private fun AiStudioTabContent(
 
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var analyzing by remember { mutableStateOf(false) }
+    var analyzingStage by remember { mutableStateOf("") }
+    var analyzingProgress by remember { mutableFloatStateOf(0f) }
+    var previewExpanded by remember { mutableStateOf(false) }
     var generatedResult by remember { mutableStateOf<AiGeneratedPlanResult?>(null) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
@@ -1216,6 +1245,62 @@ private fun AiStudioTabContent(
                         )
                     }
 
+                    if (analyzing) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = TtkDeepTeal,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = TtkGreen,
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                        Text(
+                                            text = "AI-оцифровка в процессе…",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                    Text(
+                                        text = "${(analyzingProgress * 100).toInt()}%",
+                                        color = TtkGreen,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { analyzingProgress },
+                                    color = TtkGreen,
+                                    trackColor = Color.White.copy(alpha = 0.2f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                )
+                                Text(
+                                    text = analyzingStage,
+                                    color = Color(0xFFD1DCDA),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
                     Button(
                         onClick = {
                             scope.launch {
@@ -1225,6 +1310,10 @@ private fun AiStudioTabContent(
                                     val w = widthUnits.toDoubleOrNull() ?: 700.0
                                     val h = heightUnits.toDoubleOrNull() ?: 500.0
 
+                                    analyzingStage = "Считывание растровых пикселей и бинаризация чертежа…"
+                                    analyzingProgress = 0.20f
+                                    kotlinx.coroutines.delay(400)
+
                                     val bmp = withContext(Dispatchers.IO) {
                                         selectedImageUri?.let { uri ->
                                             context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -1233,12 +1322,29 @@ private fun AiStudioTabContent(
                                         }
                                     }
 
+                                    analyzingStage = if (bmp != null) {
+                                        "Компьютерное зрение (CV): векторизация несущих стен (${bmp.width}×${bmp.height} px)…"
+                                    } else {
+                                        "Архитектурный генератор: синтез контуров комнат и коридоров…"
+                                    }
+                                    analyzingProgress = 0.55f
+                                    kotlinx.coroutines.delay(450)
+
+                                    analyzingStage = "Построение ортогонального навигационного графа и расстановка POI…"
+                                    analyzingProgress = 0.85f
+                                    kotlinx.coroutines.delay(350)
+
                                     val result = AiPlanGenerator.generatePlanFromSketch(
                                         bitmap = bmp,
                                         widthUnits = w,
                                         heightUnits = h,
-                                        spaceNameHint = spaceTitle.trim()
+                                        spaceNameHint = spaceTitle.trim().ifEmpty { "Оцифрованный зал ТТК" }
                                     )
+
+                                    analyzingStage = "Готово! Формирование интерактивной 2D-модели…"
+                                    analyzingProgress = 1.0f
+                                    kotlinx.coroutines.delay(200)
+
                                     generatedResult = result
                                 } catch (e: Exception) {
                                     errorText = e.message ?: "Ошибка AI-анализа изображения"
@@ -1260,11 +1366,26 @@ private fun AiStudioTabContent(
                             Text("✨ Запустить AI-распознавание стен", fontWeight = FontWeight.Bold)
                         }
                     }
+
+                    if (errorText != null) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = errorText!!,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // Generated Result Preview Card
+        // Generated Result Preview Card with Interactive 2D Plan Canvas
         if (generatedResult != null) {
             val res = generatedResult!!
             item {
@@ -1273,15 +1394,45 @@ private fun AiStudioTabContent(
                     color = TtkGreenContainer,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("План успешно сформирован!", fontWeight = FontWeight.Bold, color = TtkDeepTeal)
-                            Text("Точность: ${res.confidencePercent}%", fontWeight = FontWeight.Bold, color = TtkGreen)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("План успешно сформирован!", fontWeight = FontWeight.Bold, color = TtkDeepTeal, fontSize = 15.sp)
+                                Text("Точность распознавания: ${res.confidencePercent}%", color = TtkGreen, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                            }
+                            IconButton(
+                                onClick = { previewExpanded = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                FullscreenExpandIcon(tint = TtkDeepTeal)
+                            }
                         }
+
+                        // Interactive 2D Plan Canvas showing recognized walls, rooms, nodes, POIs
+                        Interactive2DPlanCanvas(
+                            widthUnits = widthUnits.toDoubleOrNull() ?: 700.0,
+                            heightUnits = heightUnits.toDoubleOrNull() ?: 500.0,
+                            backgroundUrl = null,
+                            network = repository.network,
+                            shapes = res.shapes,
+                            nodes = res.nodes,
+                            edges = res.edges,
+                            pois = res.pois,
+                            panoramas = emptyList(),
+                            showNavGraph = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(230.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(1.dp, TtkDeepTeal.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                        )
 
                         Text(
                             text = res.summaryReport,
@@ -1289,12 +1440,23 @@ private fun AiStudioTabContent(
                             color = TtkDeepTeal
                         )
 
-                        Text(
-                            text = "Размечено объектов: ${res.pois.size} · Зон: ${res.detectedRoomsCount} · Узлов навигации: ${res.nodes.size}",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TtkDeepTeal
-                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(shape = RoundedCornerShape(8.dp), color = Color.White.copy(alpha = 0.8f)) {
+                                Text("Зон / комнат: ${res.detectedRoomsCount}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TtkDeepTeal, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            }
+                            Surface(shape = RoundedCornerShape(8.dp), color = Color.White.copy(alpha = 0.8f)) {
+                                Text("Стен: ${res.detectedWallsCount}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TtkDeepTeal, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            }
+                            Surface(shape = RoundedCornerShape(8.dp), color = Color.White.copy(alpha = 0.8f)) {
+                                Text("POI объектов: ${res.pois.size}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TtkDeepTeal, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            }
+                            Surface(shape = RoundedCornerShape(8.dp), color = Color.White.copy(alpha = 0.8f)) {
+                                Text("Узлов графа: ${res.nodes.size}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TtkDeepTeal, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            }
+                        }
 
                         Button(
                             onClick = {
@@ -1311,7 +1473,6 @@ private fun AiStudioTabContent(
                                                 maxWalkGapUnits = 500.0
                                             )
                                         )
-                                        // Update created map document with AI shapes, pois, nodes, edges
                                         val newDoc = MapDocument(
                                             title = res.title,
                                             description = res.description,
@@ -1338,11 +1499,36 @@ private fun AiStudioTabContent(
                             colors = ButtonDefaults.buttonColors(containerColor = TtkBrandRed),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Создать пространство и открыть в редакторе", fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Создать пространство и открыть в 2D-редакторе", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
+        }
+    }
+
+    if (previewExpanded && generatedResult != null) {
+        val res = generatedResult!!
+        FullscreenExpandedDialog(
+            visible = true,
+            title = "AI-план: ${res.title}",
+            onDismiss = { previewExpanded = false }
+        ) {
+            Interactive2DPlanCanvas(
+                widthUnits = widthUnits.toDoubleOrNull() ?: 700.0,
+                heightUnits = heightUnits.toDoubleOrNull() ?: 500.0,
+                backgroundUrl = null,
+                network = repository.network,
+                shapes = res.shapes,
+                nodes = res.nodes,
+                edges = res.edges,
+                pois = res.pois,
+                panoramas = emptyList(),
+                showNavGraph = true,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
