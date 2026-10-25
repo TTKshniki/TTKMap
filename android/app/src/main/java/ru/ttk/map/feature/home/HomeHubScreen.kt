@@ -114,8 +114,6 @@ fun HomeHubScreen(
     }
 
     LaunchedEffect(serverUrl) {
-        // Purge legacy demo slug if present so real server data is never shadowed
-        repository.deleteCachedMap(TtkMapRepository.DEMO_OFFLINE_SLUG)
         checkServer()
     }
 

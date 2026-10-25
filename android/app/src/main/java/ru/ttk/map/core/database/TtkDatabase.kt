@@ -70,6 +70,9 @@ class TtkDatabase private constructor(context: Context) :
     override fun onOpen(db: SQLiteDatabase) {
         super.onOpen(db)
         createTablesIfNotExist(db)
+        runCatching {
+            db.execSQL("DELETE FROM analytics_events WHERE mapId = 'demo_expo_campus'")
+        }
     }
 
     private fun createTablesIfNotExist(db: SQLiteDatabase) {
@@ -296,8 +299,6 @@ class TtkDatabase private constructor(context: Context) :
     }
 
     suspend fun getAnalyticsSummary(mapIdFilter: String?): MapAnalyticsSummary = withContext(Dispatchers.IO) {
-        ensureSeededDemoAnalytics()
-
         val whereClause = if (!mapIdFilter.isNullOrBlank()) "WHERE mapId = ?" else ""
         val whereArgs = if (!mapIdFilter.isNullOrBlank()) arrayOf(mapIdFilter) else null
 
@@ -321,6 +322,8 @@ class TtkDatabase private constructor(context: Context) :
                 }
             }
         }
+
+        val totalEvents = views + poiClicks + routes + panoViews
 
         // Top clicked POIs
         val topPois = mutableListOf<PoiClickStat>()
@@ -360,105 +363,48 @@ class TtkDatabase private constructor(context: Context) :
         topPois.forEach { stat ->
             categoryMap[stat.category] = (categoryMap[stat.category] ?: 0) + stat.clickCount
         }
-        if (categoryMap.isEmpty()) {
-            categoryMap[PoiCategory.BOOTH] = (poiClicks * 0.45).toInt().coerceAtLeast(1)
-            categoryMap[PoiCategory.HALL] = (poiClicks * 0.25).toInt().coerceAtLeast(1)
-            categoryMap[PoiCategory.SERVICE_DESK] = (poiClicks * 0.15).toInt().coerceAtLeast(1)
-            categoryMap[PoiCategory.WIFI] = (poiClicks * 0.10).toInt().coerceAtLeast(1)
-            categoryMap[PoiCategory.ENTRANCE] = (poiClicks * 0.05).toInt().coerceAtLeast(1)
-        }
 
         // Hourly distribution (0..23)
-        val hourlyStats = (0..23).map { hour ->
-            // Gaussian-like peak around 11:00 - 16:00
-            val peakFactor = when (hour) {
-                in 10..12 -> 0.14f
-                in 13..15 -> 0.18f
-                in 16..18 -> 0.12f
-                in 8..9, in 19..20 -> 0.06f
-                else -> 0.015f
+        val hourlyStats = if (totalEvents == 0) {
+            (0..23).map { hour -> HourlyActivityStat(hourOfDay = hour, eventCount = 0) }
+        } else {
+            (0..23).map { hour ->
+                val peakFactor = when (hour) {
+                    in 10..12 -> 0.14f
+                    in 13..15 -> 0.18f
+                    in 16..18 -> 0.12f
+                    in 8..9, in 19..20 -> 0.06f
+                    else -> 0.015f
+                }
+                HourlyActivityStat(
+                    hourOfDay = hour,
+                    eventCount = ((views + poiClicks + routes) * peakFactor).toInt()
+                )
             }
-            HourlyActivityStat(
-                hourOfDay = hour,
-                eventCount = ((views + poiClicks + routes) * peakFactor).toInt().coerceAtLeast(0)
-            )
         }
 
         // Daily distribution (last 7 days)
         val dayLabels = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
         val dailyStats = dayLabels.mapIndexed { index, label ->
             val dayFactor = if (index in 2..5) 0.22f else 0.10f
+            val count = if (totalEvents == 0) 0 else ((views + poiClicks) * dayFactor).toInt()
             DailyActivityStat(
                 dateLabel = label,
-                eventCount = ((views + poiClicks) * dayFactor).toInt().coerceAtLeast(1)
+                eventCount = count
             )
         }
 
         MapAnalyticsSummary(
             mapId = mapIdFilter,
-            totalViews = views.coerceAtLeast(1),
-            totalPoiClicks = poiClicks.coerceAtLeast(1),
-            totalRoutesBuilt = routes.coerceAtLeast(1),
-            totalPanoramaViews = panoViews.coerceAtLeast(1),
+            totalViews = views,
+            totalPoiClicks = poiClicks,
+            totalRoutesBuilt = routes,
+            totalPanoramaViews = panoViews,
             topPois = topPois,
             categoryDistribution = categoryMap,
             hourlyActivity = hourlyStats,
             dailyActivity = dailyStats
         )
-    }
-
-    private fun ensureSeededDemoAnalytics() {
-        readableDatabase.rawQuery("SELECT COUNT(*) FROM analytics_events", null).use { c ->
-            if (c.moveToFirst() && c.getInt(0) < 15) {
-                // Seed realistic demo analytics for demonstration
-                val demoMapId = "demo_expo_campus"
-                val demoPois = listOf(
-                    "poi_reg" to ("Стойка регистрации ТТК" to 42),
-                    "poi_hall" to ("Главный конференц-зал «Цифра»" to 89),
-                    "poi_booth1" to ("Стенд №1: Магистральная сеть ТТК" to 114),
-                    "poi_booth2" to ("Стенд №2: Облачные сервисы и ЦОД" to 96),
-                    "poi_wifi" to ("Точка Wi-Fi 6 ТТК" to 58),
-                    "poi_entrance" to ("Центральный вход" to 34)
-                )
-                writableDatabase.beginTransaction()
-                try {
-                    // Seed views
-                    for (i in 0 until 185) {
-                        writableDatabase.execSQL(
-                            "INSERT INTO analytics_events (id, mapId, poiId, eventType, timestampEpochMs, meta) VALUES (?, ?, NULL, 'map_view', ?, NULL)",
-                            arrayOf(UUID.randomUUID().toString(), demoMapId, System.currentTimeMillis() - i * 180000L)
-                        )
-                    }
-                    // Seed POI clicks
-                    demoPois.forEach { (poiId, pair) ->
-                        val (title, count) = pair
-                        for (i in 0 until count) {
-                            writableDatabase.execSQL(
-                                "INSERT INTO analytics_events (id, mapId, poiId, eventType, timestampEpochMs, meta) VALUES (?, ?, ?, 'poi_click', ?, ?)",
-                                arrayOf(UUID.randomUUID().toString(), demoMapId, poiId, System.currentTimeMillis() - i * 120000L, title)
-                            )
-                        }
-                    }
-                    // Seed routes
-                    for (i in 0 until 68) {
-                        writableDatabase.execSQL(
-                            "INSERT INTO analytics_events (id, mapId, poiId, eventType, timestampEpochMs, meta) VALUES (?, ?, NULL, 'route_built', ?, 'from_entrance_to_booth')",
-                            arrayOf(UUID.randomUUID().toString(), demoMapId, System.currentTimeMillis() - i * 360000L)
-                        )
-                    }
-                    // Seed panoramas
-                    for (i in 0 until 52) {
-                        writableDatabase.execSQL(
-                            "INSERT INTO analytics_events (id, mapId, poiId, eventType, timestampEpochMs, meta) VALUES (?, ?, NULL, 'panorama_view', ?, 'pano_main_hall')",
-                            arrayOf(UUID.randomUUID().toString(), demoMapId, System.currentTimeMillis() - i * 240000L)
-                        )
-                    }
-                    writableDatabase.setTransactionSuccessful()
-                } finally {
-                    writableDatabase.endTransaction()
-                }
-            }
-        }
     }
 
     private fun refreshCachedMapsState() {

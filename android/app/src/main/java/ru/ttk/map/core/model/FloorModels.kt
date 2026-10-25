@@ -18,13 +18,13 @@ enum class InterFloorTransitionType(val labelRu: String, val iconName: String) {
 data class FloorLevel(
     val levelNumber: Int,
     val name: String,
-    val shortCode: String = "${levelNumber}F",
+    val shortCode: String = if (levelNumber == 0) "Цок" else "Э$levelNumber",
     val heightOffsetM: Double = (levelNumber - 1) * 3.8
 ) {
     companion object {
-        val DEFAULT_LEVEL_1 = FloorLevel(1, "1 Этаж", "1F", 0.0)
-        val DEFAULT_LEVEL_2 = FloorLevel(2, "2 Этаж", "2F", 3.8)
-        val DEFAULT_LEVEL_3 = FloorLevel(3, "3 Этаж", "3F", 7.6)
+        val DEFAULT_LEVEL_1 = FloorLevel(1, "1 Этаж", "Э1", 0.0)
+        val DEFAULT_LEVEL_2 = FloorLevel(2, "2 Этаж", "Э2", 3.8)
+        val DEFAULT_LEVEL_3 = FloorLevel(3, "3 Этаж", "Э3", 7.6)
     }
 }
 
@@ -55,8 +55,8 @@ object MultiFloorHelper {
     fun extractFloorLevel(id: String, label: String = "", description: String = ""): Int {
         val combined = "$id $label $description".lowercase()
         return when {
-            combined.contains("этаж 3") || combined.contains("3 этаж") || combined.contains("floor 3") || combined.contains("_f3_") || combined.contains("3f") -> 3
-            combined.contains("этаж 2") || combined.contains("2 этаж") || combined.contains("floor 2") || combined.contains("_f2_") || combined.contains("2f") -> 2
+            combined.contains("этаж 3") || combined.contains("3 этаж") || combined.contains("floor 3") || combined.contains("_f3_") || combined.contains("3f") || combined.contains("э3") -> 3
+            combined.contains("этаж 2") || combined.contains("2 этаж") || combined.contains("floor 2") || combined.contains("_f2_") || combined.contains("2f") || combined.contains("э2") -> 2
             combined.contains("цокол") || combined.contains("этаж 0") || combined.contains("0 этаж") || combined.contains("этаж -1") || combined.contains("-1 этаж") || combined.contains("_f0_") || combined.contains("_f-1_") -> 0
             else -> 1 // Default to Floor 1
         }
@@ -78,11 +78,11 @@ object MultiFloorHelper {
         }
         return levels.sorted().map { lvl ->
             when (lvl) {
-                0 -> FloorLevel(0, "Цокольный этаж", "0F", -3.5)
-                1 -> FloorLevel(1, "1 Этаж (Основной)", "1F", 0.0)
-                2 -> FloorLevel(2, "2 Этаж (Мезонин / Залы)", "2F", 3.8)
-                3 -> FloorLevel(3, "3 Этаж (Конференц-зона)", "3F", 7.6)
-                else -> FloorLevel(lvl, "$lvl Этаж", "${lvl}F", (lvl - 1) * 3.8)
+                0 -> FloorLevel(0, "Цокольный этаж", "Цок", -3.5)
+                1 -> FloorLevel(1, "1 Этаж (Основной)", "Э1", 0.0)
+                2 -> FloorLevel(2, "2 Этаж (Мезонин / Залы)", "Э2", 3.8)
+                3 -> FloorLevel(3, "3 Этаж (Конференц-зона)", "Э3", 7.6)
+                else -> FloorLevel(lvl, "$lvl Этаж", "Э$lvl", (lvl - 1) * 3.8)
             }
         }
     }
@@ -134,8 +134,8 @@ object MultiFloorHelper {
                 description = "Центральный вход, регистрация, главный конференц-зал и витрина цифровых решений.",
                 iconCategory = "main",
                 floors = listOf(
-                    FloorLevel(1, "1 Этаж · Экспозиция", "1F", 0.0),
-                    FloorLevel(2, "2 Этаж · Конференц-залы", "2F", 3.8)
+                    FloorLevel(1, "1 Этаж · Экспозиция", "Э1", 0.0),
+                    FloorLevel(2, "2 Этаж · Конференц-залы", "Э2", 3.8)
                 )
             ),
             CampusBuilding(
@@ -145,8 +145,8 @@ object MultiFloorHelper {
                 description = "Выставочная площадка телеком-оборудования, демо-зоны партнерских решений и лекторий.",
                 iconCategory = "expo",
                 floors = listOf(
-                    FloorLevel(1, "1 Этаж · Главная арена", "1F", 0.0),
-                    FloorLevel(2, "2 Этаж · VIP-переговорные", "2F", 3.8)
+                    FloorLevel(1, "1 Этаж · Главная арена", "Э1", 0.0),
+                    FloorLevel(2, "2 Этаж · VIP-переговорные", "Э2", 3.8)
                 )
             ),
             CampusBuilding(
@@ -156,7 +156,7 @@ object MultiFloorHelper {
                 description = "Навигация по открытой территории между корпусами, зонам отдыха и летним шатрам.",
                 iconCategory = "outdoor",
                 floors = listOf(
-                    FloorLevel(1, "Наземный уровень", "0F", 0.0)
+                    FloorLevel(1, "Наземный уровень", "Ул", 0.0)
                 )
             )
         )

@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -101,8 +102,12 @@ import ru.ttk.map.core.model.MapDocument
 import ru.ttk.map.core.model.Point
 import ru.ttk.map.core.repository.TtkMapRepository
 import ru.ttk.map.ui.components.Interactive2DPlanCanvas
+import ru.ttk.map.ui.components.FullscreenExpandIcon
+import ru.ttk.map.ui.components.FullscreenExpandedDialog
+import ru.ttk.map.feature.panorama.Panorama360Dialog
 import ru.ttk.map.ui.theme.TtkBrandRed
 import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -113,6 +118,7 @@ import ru.ttk.map.ui.theme.TtkDeepTeal
 import ru.ttk.map.ui.theme.TtkExpressiveLoadingIndicator
 import ru.ttk.map.ui.theme.TtkEyebrow
 import ru.ttk.map.ui.theme.TtkGreen
+import ru.ttk.map.ui.theme.TtkGreenContainer
 import ru.ttk.map.ui.theme.TtkLiveDot
 import ru.ttk.map.ui.theme.TtkPrimaryButton
 import java.io.File
@@ -195,6 +201,7 @@ fun GuidedCaptureStandaloneScreen(
                     heightUnits = map.snapshot.heightUnits,
                     document = doc,
                     repository = repository,
+                    assets = map.snapshot.assets,
                     onNotify = { },
                     onPanoramaAssetReady = { asset, panoTitle, x, y ->
                         scope.launch {
@@ -207,6 +214,7 @@ fun GuidedCaptureStandaloneScreen(
                             )
                             val updatedDoc = doc.copy(panoramas = doc.panoramas + newPano)
                             repository.replaceMapDocument(mapId, updatedDoc)
+                            runCatching { repository.publishMap(mapId) }
                             onBack()
                         }
                     }
@@ -229,12 +237,14 @@ fun GuidedCaptureSection(
     heightUnits: Double,
     document: MapDocument,
     repository: TtkMapRepository,
+    assets: List<AssetRef> = emptyList(),
     onNotify: (String) -> Unit,
     onPanoramaAssetReady: (AssetRef, String, Double, Double) -> Unit
 ) {
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
+    var sessionAssets by remember(assets) { mutableStateOf(assets) }
 
     var title by remember { mutableStateOf("Панорама зала") }
     var capturePoint by remember(widthUnits, heightUnits) {
@@ -242,6 +252,8 @@ fun GuidedCaptureSection(
     }
     var activeCapture by remember { mutableStateOf<Capture?>(null) }
     var cameraActive by remember { mutableStateOf(false) }
+    var cameraFullscreen by remember { mutableStateOf(false) }
+    var previewPanoramaInDialog by remember { mutableStateOf<Panorama?>(null) }
     var liveTextureView by remember { mutableStateOf<TextureView?>(null) }
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -283,6 +295,7 @@ fun GuidedCaptureSection(
             try {
                 val tempFile = copyUriToTempFile(context, uri, "ready-sphere.jpg")
                 val asset = repository.uploadAsset(mapId = mapId, kind = "panorama", file = tempFile)
+                sessionAssets = (sessionAssets + asset).distinctBy { it.id }
                 onPanoramaAssetReady(asset, title.ifBlank { "Панорама 360°" }, capturePoint.x, capturePoint.y)
                 statusMessage = "Готовая панорама добавлена на план. Сохраните карту."
                 onNotify("Панорама 360° загружена и привязана к плану")
@@ -333,6 +346,7 @@ fun GuidedCaptureSection(
                     val readyAsset = assets.firstOrNull { it.id == updated.resultAssetId }
                     if (readyAsset != null) {
                         view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                        sessionAssets = (sessionAssets + readyAsset).distinctBy { it.id }
                         onPanoramaAssetReady(readyAsset, updated.title, updated.x, updated.y)
                         repository.clearSavedCaptureSession(mapId)
                         statusMessage = "Панорама успешно склеена Hugin и добавлена на план!"
@@ -585,6 +599,204 @@ fun GuidedCaptureSection(
                 progressPercent = progressPercent
             )
 
+            val isSeriesComplete = CaptureGuideLogic.isSeriesComplete(frames)
+
+            // 1. Fullscreen Camera / Review Dialog
+            if (cameraFullscreen) {
+                FullscreenExpandedDialog(
+                    visible = true,
+                    title = if (pendingReviewBitmap != null) {
+                        "Проверка кадра ${(pendingReviewIndex ?: 0) + 1} из ${CaptureGuideLogic.TOTAL_FRAMES}"
+                    } else {
+                        "Камера 360° · Кадр ${(nextIndex + 1).coerceAtMost(16)} / 16"
+                    },
+                    onDismiss = { cameraFullscreen = false }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                    ) {
+                        if (pendingReviewBitmap != null && pendingReviewIndex != null) {
+                            Image(
+                                bitmap = pendingReviewBitmap!!.asImageBitmap(),
+                                contentDescription = "Отснятый кадр",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .align(Alignment.BottomCenter),
+                                color = TtkDeepTeal.copy(alpha = 0.94f),
+                                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .navigationBarsPadding()
+                                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    TtkEyebrow(
+                                        text = "ПРОВЕРКА КАДРА ${(pendingReviewIndex ?: 0) + 1} ИЗ ${CaptureGuideLogic.TOTAL_FRAMES}",
+                                        lightOnDark = true
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        TtkPrimaryButton(
+                                            text = if (busy) "Отправка…" else "Принять и загрузить",
+                                            icon = Icons.Default.Check,
+                                            enabled = !busy,
+                                            onClick = ::confirmAndUploadPendingFrame,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        OutlinedButton(
+                                            onClick = {
+                                                pendingReviewFile?.delete()
+                                                pendingReviewFile = null
+                                                pendingReviewIndex = null
+                                                pendingReviewBitmap = null
+                                            },
+                                            enabled = !busy,
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                            modifier = Modifier.height(48.dp)
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = null)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Переснять")
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Camera2Viewfinder(
+                                onTextureViewReady = { liveTextureView = it },
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            lastAcceptedBitmap?.let { prevBmp ->
+                                Image(
+                                    bitmap = prevBmp.asImageBitmap(),
+                                    contentDescription = "Ghost-ориентир предыдущего кадра",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.26f)
+                                        .fillMaxSize()
+                                        .align(Alignment.CenterStart)
+                                        .alpha(0.38f)
+                                        .border(1.dp, TtkLiveDot)
+                                )
+                            }
+
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                val cy = size.height / 2f
+                                val cx = size.width / 2f
+                                val hudColor = if (guidance.aligned) TtkLiveDot else Color.White.copy(alpha = 0.75f)
+                                drawLine(
+                                    color = hudColor,
+                                    start = Offset(cx - 56.dp.toPx(), cy),
+                                    end = Offset(cx + 56.dp.toPx(), cy),
+                                    strokeWidth = 2.dp.toPx()
+                                )
+                                drawCircle(
+                                    color = hudColor,
+                                    radius = 26.dp.toPx(),
+                                    center = Offset(cx, cy),
+                                    style = Stroke(width = 2.5.dp.toPx())
+                                )
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = TtkDeepTeal.copy(alpha = 0.88f),
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 72.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Азимут: ${headingDeg?.roundToInt() ?: 0}°",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Цель: ${targetAngle.roundToInt()}°",
+                                        color = if (guidance.aligned) TtkLiveDot else Color(0xFFD1DCDA),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .align(Alignment.BottomCenter),
+                                color = Color(0xD00B1516),
+                                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .navigationBarsPadding()
+                                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = if (isSeriesComplete) "Все 16 кадров отсняты!" else "Кадр ${(nextIndex + 1).coerceAtMost(16)} из 16 · Цель ${targetAngle.roundToInt()}°",
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp
+                                            )
+                                            Text(
+                                                text = if (isSeriesComplete) "Завершите съёмку для склейки панорамы" else guidance.text,
+                                                color = if (guidance.aligned || isSeriesComplete) TtkLiveDot else Color(0xFFD1DCDA),
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
+
+                                    if (isSeriesComplete) {
+                                        TtkPrimaryButton(
+                                            text = "✨ Завершить и склеить 360°",
+                                            icon = Icons.Default.Check,
+                                            enabled = !busy,
+                                            onClick = {
+                                                cameraFullscreen = false
+                                                cameraActive = false
+                                                triggerServerStitch()
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    } else {
+                                        TtkPrimaryButton(
+                                            text = if (busy) "Снимок…" else "Снять кадр ${(nextIndex + 1).coerceAtMost(16)}/16",
+                                            icon = Icons.Default.Add,
+                                            enabled = !busy && nextIndex < CaptureGuideLogic.TOTAL_FRAMES,
+                                            onClick = ::takeFrameSnapshot,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Pending Review Card
             if (pendingReviewBitmap != null && pendingReviewIndex != null) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
@@ -595,10 +807,22 @@ fun GuidedCaptureSection(
                         modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        TtkEyebrow(
-                            text = "ПРОВЕРКА КАДРА ${(pendingReviewIndex ?: 0) + 1} ИЗ ${CaptureGuideLogic.TOTAL_FRAMES}",
-                            lightOnDark = true
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TtkEyebrow(
+                                text = "ПРОВЕРКА КАДРА ${(pendingReviewIndex ?: 0) + 1} ИЗ ${CaptureGuideLogic.TOTAL_FRAMES}",
+                                lightOnDark = true
+                            )
+                            IconButton(
+                                onClick = { cameraFullscreen = true },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                FullscreenExpandIcon(tint = Color.White)
+                            }
+                        }
                         Image(
                             bitmap = pendingReviewBitmap!!.asImageBitmap(),
                             contentDescription = "Отснятый кадр",
@@ -636,96 +860,272 @@ fun GuidedCaptureSection(
                     }
                 }
             } else if (cameraActive && hasCameraPermission) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(290.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.Black)
-                ) {
-                    Camera2Viewfinder(
-                        onTextureViewReady = { liveTextureView = it },
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // Ghost Overlay of previous frame on the left 25% of the viewfinder
-                    lastAcceptedBitmap?.let { prevBmp ->
-                        Image(
-                            bitmap = prevBmp.asImageBitmap(),
-                            contentDescription = "Ghost-ориентир предыдущего кадра",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth(0.26f)
-                                .fillMaxSize()
-                                .align(Alignment.CenterStart)
-                                .alpha(0.38f)
-                                .border(1.dp, TtkLiveDot)
-                        )
-                    }
-
-                    // Horizon & Vertical Alignment HUD Reticle
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val cy = size.height / 2f
-                        val cx = size.width / 2f
-                        val hudColor = if (guidance.aligned) TtkLiveDot else Color.White.copy(alpha = 0.75f)
-                        drawLine(
-                            color = hudColor,
-                            start = Offset(cx - 48.dp.toPx(), cy),
-                            end = Offset(cx + 48.dp.toPx(), cy),
-                            strokeWidth = 2.dp.toPx()
-                        )
-                        drawCircle(
-                            color = hudColor,
-                            radius = 22.dp.toPx(),
-                            center = Offset(cx, cy),
-                            style = Stroke(width = 2.5.dp.toPx())
-                        )
-                    }
-
-                    Row(
+                if (cameraFullscreen) {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .background(Color(0xB80B1516))
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .height(290.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF0C1617)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), color = TtkBrandRed, strokeWidth = 2.dp)
                             Text(
-                                text = "Кадр ${(nextIndex + 1).coerceAtMost(16)} / 16 · Цель ${targetAngle.roundToInt()}°",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
+                                text = "Камера активна на весь экран",
+                                color = Color.White.copy(alpha = 0.8f),
                                 fontSize = 13.sp
                             )
-                            Text(
-                                text = guidance.text,
-                                color = if (guidance.aligned) TtkLiveDot else Color(0xFFD1DCDA),
-                                fontSize = 11.sp
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(290.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color.Black)
+                    ) {
+                        Camera2Viewfinder(
+                            onTextureViewReady = { liveTextureView = it },
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        lastAcceptedBitmap?.let { prevBmp ->
+                            Image(
+                                bitmap = prevBmp.asImageBitmap(),
+                                contentDescription = "Ghost-ориентир предыдущего кадра",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth(0.26f)
+                                    .fillMaxSize()
+                                    .align(Alignment.CenterStart)
+                                    .alpha(0.38f)
+                                    .border(1.dp, TtkLiveDot)
                             )
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TtkPrimaryButton(
-                                text = if (busy) "Снимок…" else "Снять кадр",
-                                icon = Icons.Default.Add,
-                                enabled = !busy && nextIndex < CaptureGuideLogic.TOTAL_FRAMES,
-                                onClick = ::takeFrameSnapshot
+
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val cy = size.height / 2f
+                            val cx = size.width / 2f
+                            val hudColor = if (guidance.aligned) TtkLiveDot else Color.White.copy(alpha = 0.75f)
+                            drawLine(
+                                color = hudColor,
+                                start = Offset(cx - 48.dp.toPx(), cy),
+                                end = Offset(cx + 48.dp.toPx(), cy),
+                                strokeWidth = 2.dp.toPx()
                             )
-                            IconButton(onClick = { cameraActive = false }) {
-                                Icon(Icons.Default.Close, contentDescription = "Выключить камеру", tint = Color.White)
+                            drawCircle(
+                                color = hudColor,
+                                radius = 22.dp.toPx(),
+                                center = Offset(cx, cy),
+                                style = Stroke(width = 2.5.dp.toPx())
+                            )
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(10.dp)
+                        ) {
+                            IconButton(
+                                onClick = { cameraFullscreen = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                FullscreenExpandIcon(tint = Color.White)
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .background(Color(0xB80B1516))
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isSeriesComplete) "Все 16 кадров отсняты!" else "Кадр ${(nextIndex + 1).coerceAtMost(16)} / 16 · Цель ${targetAngle.roundToInt()}°",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = if (isSeriesComplete) "Завершите съёмку для склейки" else guidance.text,
+                                    color = if (guidance.aligned || isSeriesComplete) TtkLiveDot else Color(0xFFD1DCDA),
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (isSeriesComplete) {
+                                    TtkPrimaryButton(
+                                        text = "Склеить",
+                                        icon = Icons.Default.Check,
+                                        enabled = !busy,
+                                        onClick = {
+                                            cameraActive = false
+                                            triggerServerStitch()
+                                        }
+                                    )
+                                } else {
+                                    TtkPrimaryButton(
+                                        text = if (busy) "Снимок…" else "Снять кадр",
+                                        icon = Icons.Default.Add,
+                                        enabled = !busy && nextIndex < CaptureGuideLogic.TOTAL_FRAMES,
+                                        onClick = ::takeFrameSnapshot
+                                    )
+                                }
+                                IconButton(onClick = { cameraActive = false }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Выключить камеру", tint = Color.White)
+                                }
                             }
                         }
                     }
                 }
             }
 
+            // 3. Completion Banner (when all 16 frames are collected)
+            if (isSeriesComplete && (activeCapture?.state == CaptureState.COLLECTING || CaptureGuideLogic.canRetry(activeCapture))) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = TtkGreenContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = TtkGreen)
+                            Text(
+                                text = "Все 16 кадров успешно отсняты!",
+                                fontWeight = FontWeight.Bold,
+                                color = TtkDeepTeal,
+                                fontSize = 14.sp
+                            )
+                        }
+                        Text(
+                            text = "Нажмите «Завершить и склеить 360°», чтобы запустить серверную сшивку Hugin. Готовая панорама сразу привяжется к плану и опубликуется на сайте.",
+                            color = TtkDeepTeal,
+                            fontSize = 12.sp
+                        )
+                        TtkPrimaryButton(
+                            text = "✨ Завершить съёмку и склеить 360°",
+                            icon = Icons.Default.Check,
+                            enabled = !busy,
+                            onClick = ::triggerServerStitch,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
+            // 4. Server Stitching Progress Card
+            if (activeCapture?.state == CaptureState.QUEUED || activeCapture?.state == CaptureState.RUNNING) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = TtkDeepTeal,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(color = TtkLiveDot, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text(
+                                    text = if (activeCapture?.state == CaptureState.QUEUED) "В очереди на склейку…" else "Склейка на сервере…",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                            Text(
+                                text = "${activeCapture?.progress ?: 5}%",
+                                color = TtkLiveDot,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                        LinearProgressIndicator(
+                            progress = { ((activeCapture?.progress ?: 5) / 100f).coerceIn(0.05f, 1f) },
+                            color = TtkLiveDot,
+                            trackColor = Color.White.copy(alpha = 0.2f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                        )
+                        Text(
+                            text = "Алгоритм Hugin/enblend рассчитывает параметры оптического перекрытия и сшивает 16 кадров в бесшовную 360° сферу...",
+                            color = Color(0xFFD1DCDA),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            // 5. Success Card when panorama is ready
+            if (activeCapture?.state == CaptureState.SUCCEEDED && activeCapture?.resultAssetId != null) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = TtkGreenContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Панорама готова и добавлена на карту!", fontWeight = FontWeight.Bold, color = TtkDeepTeal, fontSize = 13.sp)
+                            Text(activeCapture?.title ?: "360° обзор", color = TtkDeepTeal, fontSize = 11.sp)
+                        }
+                        TtkPrimaryButton(
+                            text = "Смотреть 360°",
+                            icon = Icons.Default.PlayArrow,
+                            onClick = {
+                                val pano = document.panoramas.firstOrNull { it.assetId == activeCapture?.resultAssetId }
+                                    ?: Panorama(
+                                        id = UUID.randomUUID().toString(),
+                                        title = activeCapture?.title ?: "Панорама",
+                                        assetId = activeCapture!!.resultAssetId!!,
+                                        x = activeCapture!!.x,
+                                        y = activeCapture!!.y
+                                    )
+                                previewPanoramaInDialog = pano
+                            }
+                        )
+                    }
+                }
+            }
+
+            // 6. Action Buttons
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                if (!cameraActive && pendingReviewBitmap == null) {
+                if (!cameraActive && pendingReviewBitmap == null && !isSeriesComplete) {
                     TtkPrimaryButton(
-                        text = if (frames.isEmpty()) "Включить камеру (16 кадров)" else "Продолжить съёмку (${frames.size}/16)",
+                        text = if (frames.isEmpty()) "Включить камеру" else "Продолжить съёмку (${frames.size}/16)",
                         icon = Icons.Default.Add,
                         enabled = !busy && activeCapture?.state != CaptureState.QUEUED && activeCapture?.state != CaptureState.RUNNING,
                         onClick = {
@@ -736,22 +1136,6 @@ fun GuidedCaptureSection(
                             }
                         }
                     )
-                }
-
-                if (CaptureGuideLogic.isSeriesComplete(frames) &&
-                    (activeCapture?.state == CaptureState.COLLECTING || CaptureGuideLogic.canRetry(activeCapture))
-                ) {
-                    Button(
-                        onClick = ::triggerServerStitch,
-                        enabled = !busy,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = TtkGreen),
-                        modifier = Modifier.height(48.dp)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Склеить панораму на сервере (Hugin)", fontWeight = FontWeight.Bold)
-                    }
                 }
 
                 OutlinedButton(
@@ -848,6 +1232,21 @@ fun GuidedCaptureSection(
                 }
             }
         }
+    }
+
+    previewPanoramaInDialog?.let { pano ->
+        Panorama360Dialog(
+            panorama = pano,
+            allPanoramas = document.panoramas,
+            hotspots = document.hotspots,
+            pois = document.pois,
+            assets = sessionAssets,
+            network = repository.network,
+            onDismiss = { previewPanoramaInDialog = null },
+            onSelectPanorama = { target, _ ->
+                previewPanoramaInDialog = target
+            }
+        )
     }
 }
 

@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -54,6 +55,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -64,6 +66,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -106,11 +109,14 @@ import ru.ttk.map.core.model.MultiFloorHelper
 import ru.ttk.map.core.repository.TtkMapRepository
 import ru.ttk.map.feature.capture.GuidedCaptureSection
 import ru.ttk.map.feature.panorama.Panorama360Dialog
+import ru.ttk.map.ui.components.FullscreenExpandIcon
+import ru.ttk.map.ui.components.FullscreenExpandedDialog
 import ru.ttk.map.ui.components.Interactive2DPlanCanvas
 import ru.ttk.map.ui.components.Interactive3DPlanCanvas
 import ru.ttk.map.ui.theme.TtkBrandLockup
 import ru.ttk.map.ui.theme.TtkBrandRed
 import ru.ttk.map.ui.theme.TtkDeepTeal
+import ru.ttk.map.ui.theme.TtkExpressiveLoadingIndicator
 import ru.ttk.map.ui.theme.TtkEyebrow
 import ru.ttk.map.ui.theme.TtkFilterChip
 import ru.ttk.map.ui.theme.TtkGreen
@@ -623,6 +629,10 @@ fun OrganizerWorkspaceScreen(
     var activeFloorLevel by remember { mutableIntStateOf(1) }
     var showAiPlanDialog by remember { mutableStateOf(false) }
     var aiAnalyzing by remember { mutableStateOf(false) }
+    var aiStage by remember { mutableStateOf("") }
+    var aiProgress by remember { mutableFloatStateOf(0f) }
+    var aiCustomImageUri by remember { mutableStateOf<Uri?>(null) }
+    var aiPreviewExpanded by remember { mutableStateOf(false) }
     var aiResult by remember { mutableStateOf<AiGeneratedPlanResult?>(null) }
 
     var activeTool by remember { mutableStateOf(EditorTool.SELECT) }
@@ -727,6 +737,12 @@ fun OrganizerWorkspaceScreen(
                 saving = false
             }
         }
+    }
+
+    val aiSketchPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        aiCustomImageUri = uri
     }
 
     val currentMap = organizerMap?.snapshot
@@ -1105,7 +1121,7 @@ fun OrganizerWorkspaceScreen(
                                     val num = v.toDoubleOrNull()?.coerceIn(1.0, 1000000.0) ?: 500.0
                                     updateDraft { it.copy(maxWalkGapUnits = num) }
                                 },
-                                label = { Text("Макс. шаг walk") },
+                                label = { Text("Макс. шаг перехода (ед.)") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp),
@@ -1396,9 +1412,11 @@ fun OrganizerWorkspaceScreen(
                     heightUnits = currentMap.heightUnits,
                     document = currentDoc,
                     repository = repository,
+                    assets = assets,
                     onNotify = { msg -> noticeText = msg },
                     onPanoramaAssetReady = { asset, title, x, y ->
                         assets = (assets + asset).distinctBy { it.id }
+                        var updatedDocToSave: MapDocument? = null
                         updateDraft { doc ->
                             if (doc.panoramas.any { it.assetId == asset.id }) return@updateDraft doc
                             val freeNode = doc.nodes
@@ -1414,7 +1432,33 @@ fun OrganizerWorkspaceScreen(
                                 headingOffsetDeg = 0.0
                             )
                             selectedPanoramaId = newPano.id
-                            doc.copy(panoramas = doc.panoramas + newPano)
+                            val updated = doc.copy(panoramas = doc.panoramas + newPano)
+                            updatedDocToSave = updated
+                            updated
+                        }
+                        scope.launch {
+                            try {
+                                val currentDoc = updatedDocToSave ?: draft ?: return@launch
+                                val docToSave = if (currentDoc.pois.isEmpty()) {
+                                    val autoPoi = Poi(
+                                        id = UUID.randomUUID().toString(),
+                                        title = "Главный вход",
+                                        category = PoiCategory.ENTRANCE,
+                                        x = currentMap.widthUnits / 2.0,
+                                        y = currentMap.heightUnits / 2.0
+                                    )
+                                    currentDoc.copy(isPublished = true, pois = listOf(autoPoi))
+                                } else {
+                                    currentDoc.copy(isPublished = true)
+                                }
+                                val (saved, _) = repository.replaceMapDocument(mapId, docToSave)
+                                organizerMap = saved
+                                draft = saved.snapshot.document
+                                dirty = false
+                                noticeText = "Панорама сохранена и опубликована на сайте!"
+                            } catch (e: Exception) {
+                                errorText = "Ошибка сохранения панорамы: ${e.message}"
+                            }
                         }
                     }
                 )
@@ -1569,22 +1613,141 @@ fun OrganizerWorkspaceScreen(
                 )
 
                 if (aiResult == null) {
+                    // Option to choose custom sketch or use background
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { aiSketchPicker.launch("image/*") }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(Icons.Default.Place, contentDescription = null, tint = TtkGreen)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = when {
+                                        aiCustomImageUri != null -> "Пользовательский эскиз выбран (нажмите для смены)"
+                                        !backgroundUrl.isNullOrBlank() -> "Фоновый чертеж пространства подключен"
+                                        else -> "Нажмите для выбора эскиза / БТИ (опционально)"
+                                    },
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = if (aiCustomImageUri == null && backgroundUrl.isNullOrBlank()) {
+                                        "Без изображения будет синтезирована выставочная планировка ТТК"
+                                    } else {
+                                        "Изображение будет обработано алгоритмами компьютерного зрения"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    if (aiAnalyzing) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = TtkDeepTeal,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = TtkGreen,
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                        Text(
+                                            text = "AI-анализ чертежа…",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                    Text(
+                                        text = "${(aiProgress * 100).toInt()}%",
+                                        color = TtkGreen,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { aiProgress },
+                                    color = TtkGreen,
+                                    trackColor = Color.White.copy(alpha = 0.2f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                )
+                                Text(
+                                    text = aiStage,
+                                    color = Color(0xFFD1DCDA),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
                     Button(
                         onClick = {
                             scope.launch {
                                 aiAnalyzing = true
                                 try {
+                                    aiStage = "Считывание растровых пикселей и бинаризация чертежа…"
+                                    aiProgress = 0.20f
+                                    kotlinx.coroutines.delay(400)
+
                                     val bmp = withContext(Dispatchers.IO) {
-                                        if (!backgroundUrl.isNullOrBlank()) {
+                                        if (aiCustomImageUri != null) {
+                                            context.contentResolver.openInputStream(aiCustomImageUri!!)?.use {
+                                                BitmapFactory.decodeStream(it)
+                                            }
+                                        } else if (!backgroundUrl.isNullOrBlank()) {
                                             repository.network.loadBitmap(backgroundUrl)
                                         } else null
                                     }
+
+                                    aiStage = if (bmp != null) {
+                                        "Компьютерное зрение (CV): векторизация несущих стен (${bmp.width}×${bmp.height} px)…"
+                                    } else {
+                                        "Архитектурный генератор: синтез контуров комнат и коридоров…"
+                                    }
+                                    aiProgress = 0.55f
+                                    kotlinx.coroutines.delay(450)
+
+                                    aiStage = "Построение ортогонального навигационного графа и расстановка POI…"
+                                    aiProgress = 0.85f
+                                    kotlinx.coroutines.delay(350)
+
                                     val result = AiPlanGenerator.generatePlanFromSketch(
                                         bitmap = bmp,
                                         widthUnits = currentMap.widthUnits,
                                         heightUnits = currentMap.heightUnits,
                                         spaceNameHint = currentDoc.title
                                     )
+
+                                    aiStage = "Готово! Формирование интерактивной модели…"
+                                    aiProgress = 1.0f
+                                    kotlinx.coroutines.delay(200)
+
                                     aiResult = result
                                 } finally {
                                     aiAnalyzing = false
@@ -1599,7 +1762,7 @@ fun OrganizerWorkspaceScreen(
                             .height(50.dp)
                     ) {
                         if (aiAnalyzing) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                            TtkExpressiveLoadingIndicator(size = 20.dp)
                         } else {
                             Text("✨ Запустить AI-распознавание", fontWeight = FontWeight.Bold)
                         }
@@ -1611,8 +1774,36 @@ fun OrganizerWorkspaceScreen(
                         color = TtkGreenContainer,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Результат анализа (точность ${res.confidencePercent}%):", fontWeight = FontWeight.Bold, color = TtkDeepTeal)
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Результат анализа (точность ${res.confidencePercent}%):", fontWeight = FontWeight.Bold, color = TtkDeepTeal)
+                                IconButton(onClick = { aiPreviewExpanded = true }, modifier = Modifier.size(32.dp)) {
+                                    FullscreenExpandIcon(tint = TtkDeepTeal)
+                                }
+                            }
+
+                            Interactive2DPlanCanvas(
+                                widthUnits = currentMap.widthUnits,
+                                heightUnits = currentMap.heightUnits,
+                                backgroundUrl = null,
+                                network = repository.network,
+                                shapes = res.shapes,
+                                nodes = res.nodes,
+                                edges = res.edges,
+                                pois = res.pois,
+                                panoramas = emptyList(),
+                                showNavGraph = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(1.dp, TtkDeepTeal.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                            )
+
                             Text(res.summaryReport, fontSize = 12.sp, color = TtkDeepTeal)
                         }
                     }
@@ -1623,6 +1814,7 @@ fun OrganizerWorkspaceScreen(
                                 updateDraft { doc ->
                                     AiPlanGenerator.applyGeneratedResultToDocument(doc, res, replaceExisting = false)
                                 }
+                                saveDocument()
                                 noticeText = "AI геометрия успешно добавлена на карту!"
                                 showAiPlanDialog = false
                                 aiResult = null
@@ -1631,19 +1823,59 @@ fun OrganizerWorkspaceScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = TtkBrandRed),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("Применить к плану", fontWeight = FontWeight.Bold)
+                            Text("Добавить к плану", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                updateDraft { doc ->
+                                    AiPlanGenerator.applyGeneratedResultToDocument(doc, res, replaceExisting = true)
+                                }
+                                saveDocument()
+                                noticeText = "Чертеж заменен распознанной геометрией!"
+                                showAiPlanDialog = false
+                                aiResult = null
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = TtkDeepTeal),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Заменить весь план", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
 
                         OutlinedButton(
                             onClick = { aiResult = null },
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Повторить")
+                            Icon(Icons.Default.Refresh, contentDescription = "Повторить", modifier = Modifier.size(16.dp))
                         }
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
+        }
+    }
+
+    if (aiPreviewExpanded && aiResult != null) {
+        val res = aiResult!!
+        FullscreenExpandedDialog(
+            visible = true,
+            title = "AI-план: ${res.title}",
+            onDismiss = { aiPreviewExpanded = false }
+        ) {
+            Interactive2DPlanCanvas(
+                widthUnits = currentMap.widthUnits,
+                heightUnits = currentMap.heightUnits,
+                backgroundUrl = null,
+                network = repository.network,
+                shapes = res.shapes,
+                nodes = res.nodes,
+                edges = res.edges,
+                pois = res.pois,
+                panoramas = emptyList(),
+                showNavGraph = true,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
