@@ -1,9 +1,13 @@
 .vibeteam/
+.agents/
+.codex/
+.aws/
 .venv/
 venv/
 __pycache__/
 *.py[cod]
 node_modules/
+frontend/node_modules
 .env
 .env.*
 !.env.example
@@ -11,9 +15,26 @@ node_modules/
 dist/
 build/
 data/
+backups/
+photos/
+Update Design/
+frontend/public/photos/
 !frontend/src/design/data/
 !frontend/src/design/data/**
 frontend/.vite/
+
+# Internal planning, review and source notes
+AGENTS.md
+**/AGENTS.md
+Audit.md
+Improvements.md
+TASKS/
+specification.md
+docs/
+android/README.md
+backend/**/README.md
+frontend/**/README.md
+.github/pull_request_template.md
 
 # VibeTeamOS & Hackathon Runtime Artifacts
 .vibeteam_env/
@@ -30,6 +51,9 @@ test-results/
 playwright-report/
 
 # Android build outputs and machine-local paths
+**/.idea/
+**/.gradle/
+**/local.properties
 android/.gradle/
 android/build/
 android/app/build/
@@ -39,8 +63,4 @@ android/*.iml
 *.apk
 *.aab
 
-# Local database backups produced during migrations
-backups/
-
-# Raw source photos; the shipped logo lives in frontend/public
-photos/
+# Local database backups and raw source photos are never part of a release.
