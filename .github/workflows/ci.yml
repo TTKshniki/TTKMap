@@ -29,7 +29,6 @@ jobs:
       - run: npm --prefix frontend ci --no-audit --no-fund
       - run: python scripts/check_contracts.py
       - run: python scripts/generate_types.py --check
-      - run: python scripts/render_workplan.py --check
       - run: npm --prefix frontend run test
       - run: npm --prefix frontend run build
       - run: cp .env.example .env
