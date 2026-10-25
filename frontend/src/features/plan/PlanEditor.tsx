@@ -1315,12 +1315,11 @@ export function PlanEditor({
     },
   };
 
-  const currentHint = tool
-    ? toolHints[tool]
-    : {
-        title: "Режим выбора и перемещения",
-        hint: "Кликните на любой объект для настройки свойств или перемещения. Растяните рамку на свободном месте для области выделения.",
-      };
+  const currentHint =
+    (tool ? toolHints[tool] : undefined) ?? {
+      title: "Режим выбора и перемещения",
+      hint: "Кликните на любой объект для настройки свойств или перемещения. Растяните рамку на свободном месте для области выделения.",
+    };
 
   return (
     <section className="plan-editor space-y-6">
