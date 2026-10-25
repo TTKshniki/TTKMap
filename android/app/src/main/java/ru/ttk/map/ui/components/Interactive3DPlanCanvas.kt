@@ -98,6 +98,7 @@ fun Interactive3DPlanCanvas(
     var zoomScale by remember { mutableFloatStateOf(1.0f) }
     var panOffsetX by remember { mutableFloatStateOf(0f) }
     var panOffsetY by remember { mutableFloatStateOf(0f) }
+    var isFullscreen by remember { mutableStateOf(false) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "3dAnim")
     val routeDashPhase by infiniteTransition.animateFloat(
@@ -176,14 +177,20 @@ fun Interactive3DPlanCanvas(
                         modifier = Modifier.size(16.dp)
                     )
                 }
+                IconButton(
+                    onClick = { isFullscreen = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    FullscreenExpandIcon(tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+                }
             }
         }
 
-        // Interactive 3D Render Surface
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f, fill = false)
+        // Interactive 3D Render Surface Lambda
+        val render3dSurface: @Composable (Modifier) -> Unit = { surfaceModifier ->
+            Box(
+                modifier = surfaceModifier
+                    .background(Color(0xFF0F1718))
                 .pointerInput(Unit) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         zoomScale = (zoomScale * zoom).coerceIn(0.6f, 3.5f)
@@ -463,6 +470,39 @@ fun Interactive3DPlanCanvas(
                     drawCircle(TtkGreen, radius = 6f, center = pHead)
                     drawCircle(Color.White, radius = 2.5f, center = pHead)
                 }
+            }
+        }
+        }
+
+        render3dSurface(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+        )
+        if (isFullscreen) {
+            FullscreenExpandedDialog(
+                visible = true,
+                title = "3D-Модель пространства",
+                onDismiss = { isFullscreen = false },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            azimuthDeg = 35f
+                            elevationDeg = 48f
+                            zoomScale = 1.0f
+                            panOffsetX = 0f
+                            panOffsetY = 0f
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Сброс камеры",
+                            tint = Color.White
+                        )
+                    }
+                }
+            ) {
+                render3dSurface(Modifier.fillMaxSize())
             }
         }
     }

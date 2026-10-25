@@ -526,8 +526,8 @@ fun GuidedCaptureSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    TtkEyebrow(text = "МОДУЛЬ 2 · СЪЁМКА И ПРИВЯЗКА ПАНОРАМ")
-                    Text("Пошаговый 360° гид (16 кадров × 22,5°)", style = MaterialTheme.typography.titleLarge)
+                    TtkEyebrow(text = "СЪЁМКА И ПРИВЯЗКА ПАНОРАМ")
+                    Text("Пошаговый 360° гид", style = MaterialTheme.typography.titleLarge)
                 }
                 Surface(
                     shape = CircleShape,

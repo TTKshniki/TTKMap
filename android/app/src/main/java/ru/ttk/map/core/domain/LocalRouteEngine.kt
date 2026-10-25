@@ -15,7 +15,7 @@ import kotlin.math.round
 
 /**
  * Offline-capable Dijkstra pathfinding & Panorama Walk builder.
- * Mirrors backend/app/routers/public.py & CONTRACTS/AGENTS.md invariants so
+ * Mirrors backend/app/routers/public.py and the shared API invariants so
  * cached maps can calculate full 2D routes + 360° panorama walkthroughs even offline.
  */
 object LocalRouteEngine {
